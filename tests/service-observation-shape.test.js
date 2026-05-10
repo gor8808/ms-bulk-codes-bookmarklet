@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   evaluateOutcome
-} = require('../extension-poc/lib/outcome-evaluator.js');
+} = require('../extension/lib/outcome-evaluator.js');
 
 test('disappeared field remains a transition candidate for follow-up observation', () => {
   const result = evaluateOutcome(

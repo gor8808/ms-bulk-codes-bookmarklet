@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node --test",
     "build:install": "node scripts/generate-install-page.js",
-    "test:extension-poc": "node --test tests/cdp-sequence.test.js tests/outcome-evaluator.test.js tests/service-observation-shape.test.js tests/bulk-session.test.js tests/response-parser.test.js"
+    "test:extension": "node --test tests/cdp-sequence.test.js tests/outcome-evaluator.test.js tests/service-observation-shape.test.js tests/bulk-session.test.js tests/response-parser.test.js"
   },
   "keywords": [],
   "author": "",

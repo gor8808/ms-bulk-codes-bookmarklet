@@ -9,7 +9,7 @@ const {
   finalizeSession,
   formatFailedDetails,
   formatFailedCodes
-} = require('../extension-poc/lib/bulk-session.js');
+} = require('../extension/lib/bulk-session.js');
 
 test('parseCodes trims values and counts blank lines as skipped', () => {
   const parsed = parseCodes('CODE-1\n\n CODE-2 \r\n');

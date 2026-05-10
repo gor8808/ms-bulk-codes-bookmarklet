@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const {
   extractServiceReason,
   isSuccessfulServiceResponse
-} = require('../extension-poc/lib/response-parser.js');
+} = require('../extension/lib/response-parser.js');
 
 test('extractServiceReason pulls useful message from json body', () => {
   const reason = extractServiceReason([

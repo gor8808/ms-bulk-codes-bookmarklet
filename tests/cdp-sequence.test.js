@@ -5,7 +5,7 @@ const {
   buildCodeSequence,
   buildClearSequence,
   buildEnterSequence
-} = require('../extension-poc/lib/cdp-sequence.js');
+} = require('../extension/lib/cdp-sequence.js');
 
 test('buildClearSequence emits select-all then backspace', () => {
   const seq = buildClearSequence();

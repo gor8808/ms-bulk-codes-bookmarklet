@@ -26,7 +26,7 @@
 1. Откройте `chrome://extensions`.
 2. Включите `Developer mode`.
 3. Нажмите `Load unpacked`.
-4. Выберите папку `extension-poc`.
+4. Выберите папку `extension`.
 
 ## Примечания
 

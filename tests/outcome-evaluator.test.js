@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const {
   evaluateOutcome,
   firstFreshError
-} = require('../extension-poc/lib/outcome-evaluator.js');
+} = require('../extension/lib/outcome-evaluator.js');
 
 test('firstFreshError returns only new error text', () => {
   const fresh = firstFreshError(['Код уже добавлен'], ['Код уже добавлен', 'Поле невалидно']);
