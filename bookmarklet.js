@@ -188,20 +188,22 @@
     card.innerHTML = '';
     const details = el('textarea', 'width:100%;height:180px;box-sizing:border-box;padding:10px;border:1px solid #ccd2d8;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.4');
     details.readOnly = true;
-    details.value = result.failedCodes.length ? result.failedCodes.join('\n') : T.noFailed;
+    details.value = result.failedItems.length
+      ? result.failedItems.map((item) => item.code + ' -> ' + item.reason).join('\n')
+      : T.noFailed;
 
     const actions = el('div', 'margin-top:12px;display:flex;gap:8px;justify-content:flex-end');
     const copy = el('button', 'padding:8px 12px;border:1px solid #2f7cff;background:#fff;color:#2f7cff;border-radius:8px;cursor:pointer', T.copy);
     const close = el('button', 'padding:8px 12px;border:1px solid #ccd2d8;background:#fff;border-radius:8px;cursor:pointer', T.close);
 
     copy.onclick = async () => {
-      if (!result.failedCodes.length) {
+      if (!result.failedItems.length) {
         copy.textContent = T.noFailed;
         setTimeout(() => (copy.textContent = T.copy), 1200);
         return;
       }
       try {
-        await navigator.clipboard.writeText(result.failedCodes.join('\n'));
+        await navigator.clipboard.writeText(result.failedItems.map((item) => item.code).join('\n'));
       } catch (_e) {
         details.focus();
         details.select();
@@ -269,7 +271,7 @@
       let added = 0;
       let failed = 0;
       let processed = 0;
-      const failedCodes = [];
+      const failedItems = [];
       let lastStatus = '—';
 
       const setCounts = () => {
@@ -293,7 +295,10 @@
           lastStatus = '✓ ' + code;
         } else {
           failed += 1;
-          failedCodes.push(code);
+          failedItems.push({
+            code,
+            reason: res && res.message ? res.message : (res.status === 'timeout' ? 'Таймаут ожидания' : 'Не удалось добавить')
+          });
           lastStatus = '✗ ' + code;
         }
         setCounts();
@@ -302,7 +307,7 @@
       }
 
       const skipped = skippedBlank + Math.max(0, codes.length - processed);
-      summaryStep(card, { added, failed, skipped, failedCodes }, close);
+      summaryStep(card, { added, failed, skipped, failedItems }, close);
     }, close);
 
     root.addEventListener('click', (e) => {

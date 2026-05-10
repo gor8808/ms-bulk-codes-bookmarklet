@@ -201,7 +201,7 @@ test('records failed code when error tooltip appears', async () => {
   assert.match(text, /Добавлено:\s*0\s*\|\s*Ошибки:\s*1/);
 
   const details = getOverlay(env.document).querySelector('textarea');
-  assert.equal(details.value.trim(), failedCode);
+  assert.match(details.value, new RegExp(failedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*->\\s*Поле невалидно'));
 });
 
 test('preserves GS1 group separator and supports stop mid-run', async () => {
