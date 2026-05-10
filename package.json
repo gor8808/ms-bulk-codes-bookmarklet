@@ -4,7 +4,8 @@
   "description": "",
   "main": "bookmarklet.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:install": "node scripts/generate-install-page.js"
   },
   "keywords": [],
   "author": "",
