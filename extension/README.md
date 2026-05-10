@@ -23,6 +23,19 @@
 
 ## Как загрузить локально
 
+### Вариант 1: скачать готовый ZIP из GitHub Release
+
+1. Откройте страницу релиза:
+   [v0.1.0](https://github.com/gor8808/ms-bulk-codes-bookmarklet/releases/tag/v0.1.0)
+2. Скачайте файл `masovye-kody-moysklad-v0.1.0.zip` из блока `Assets`.
+3. Распакуйте ZIP в любую папку на компьютере.
+4. Откройте `chrome://extensions`.
+5. Включите `Developer mode`.
+6. Нажмите `Load unpacked`.
+7. Выберите папку `extension` из распакованного архива.
+
+### Вариант 2: из репозитория
+
 1. Откройте `chrome://extensions`.
 2. Включите `Developer mode`.
 3. Нажмите `Load unpacked`.
