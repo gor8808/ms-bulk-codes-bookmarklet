@@ -204,6 +204,36 @@ test('records failed code when error tooltip appears', async () => {
   assert.match(details.value, new RegExp(failedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*->\\s*Поле невалидно'));
 });
 
+test('captures failure reason from generic notification container (not timeout)', async () => {
+  const env = createDom();
+  const failedCode = 'bad-code-2';
+
+  env.input.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    setTimeout(() => {
+      const note = env.document.createElement('div');
+      note.className = 'app-notification-message';
+      note.textContent = 'Код уже добавлен';
+      env.document.body.appendChild(note);
+    }, 10);
+  });
+
+  runBookmarklet(env.dom);
+  await waitFor(() => !!getOverlay(env.document), { label: 'overlay open' });
+
+  env.document.querySelector('textarea').value = failedCode;
+  clickButtonByText(env.document, 'Добавить');
+
+  await waitFor(() => (getOverlay(env.document)?.textContent || '').includes('Готово'), {
+    timeout: 5000,
+    label: 'summary'
+  });
+
+  const details = getOverlay(env.document).querySelector('textarea').value;
+  assert.match(details, new RegExp(failedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*->\\s*Код уже добавлен'));
+  assert.doesNotMatch(details, /Таймаут/i);
+});
+
 test('preserves GS1 group separator and supports stop mid-run', async () => {
   const env = createDom();
   const submissions = [];

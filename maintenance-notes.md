@@ -52,3 +52,19 @@ Row-count success fallback:
 - `sendCode()`
 - `waitOutcome()` / `errorText()` / `rowCount()`
 4. Re-run smoke tests: one valid code, one invalid code, stop mid-run, rerun without reload.
+
+## Debug logging
+
+Runtime debug can be enabled in browser console:
+- `localStorage.setItem('MS_BULK_DEBUG', '1')`
+
+Disable debug:
+- `localStorage.removeItem('MS_BULK_DEBUG')`
+
+When enabled, bookmarklet prints prefixed logs in console:
+- `[MS Bulk] start`
+- `[MS Bulk] run ...`
+- `[MS Bulk] ok ...`
+- `[MS Bulk] fail ...`
+- `[MS Bulk] err ...`
+- `[MS Bulk] timeout`

@@ -4,6 +4,13 @@
   const ID = 'ms-bulk-codes-overlay';
   const TIMEOUT = 5000;
   const GAP = 150;
+  const DEBUG = (() => {
+    try {
+      return localStorage.getItem('MS_BULK_DEBUG') === '1';
+    } catch (_e) {
+      return false;
+    }
+  })();
 
   const T = {
     title: 'Массовое добавление кодов маркировки',
@@ -24,6 +31,15 @@
     errorPrefix: 'Ошибка выполнения: '
   };
 
+  function dbg() {
+    if (!DEBUG) return;
+    const args = Array.from(arguments);
+    args.unshift('[MS Bulk]');
+    try {
+      console.log.apply(console, args);
+    } catch (_e) {}
+  }
+
   function removeOld() {
     const old = document.getElementById(ID);
     if (old) old.remove();
@@ -36,8 +52,9 @@
 
   function findInput() {
     const list = Array.from(document.querySelectorAll('input[type="text"],input:not([type])'));
-    return list.find((el) => (el.placeholder || '').toLowerCase().includes('добавить позицию')) ||
+    const found = list.find((el) => (el.placeholder || '').toLowerCase().includes('добавить позицию')) ||
       list.find((el) => (el.getAttribute('aria-label') || '').toLowerCase().includes('добавить позицию')) || null;
+    return found;
   }
 
   function rowCount(input) {
@@ -50,25 +67,73 @@
     return document.querySelectorAll('tbody tr').length;
   }
 
-  function visibleText(el) {
-    if (!el) return '';
-    const s = getComputedStyle(el);
-    if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return '';
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return '';
-    return (el.textContent || '').trim();
+  function cleanText(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim();
   }
 
-  function errorText(input) {
-    if (input.getAttribute('aria-invalid') === 'true') return 'Поле невалидно';
-    const keys = ['не найден', 'уже добав', 'неверн', 'ошиб', 'формат', 'не удалось', 'нельзя'];
-    const nodes = document.querySelectorAll('[role="alert"],[role="tooltip"],[class*="error"],[class*="Error"],[class*="tooltip"],[class*="Tooltip"]');
-    for (const el of nodes) {
+  function isErrorLikeText(txt) {
+    const low = txt.toLowerCase();
+    if (!low || low.length < 3 || low.length > 220) return false;
+    const keys = [
+      'не найден',
+      'уже добав',
+      'неверн',
+      'ошиб',
+      'формат',
+      'не удалось',
+      'нельзя',
+      'невалид',
+      'код',
+      'маркиров',
+      'товар'
+    ];
+    return keys.some((k) => low.includes(k));
+  }
+
+  function collectErrorTexts(input) {
+    const out = [];
+
+    const push = (v) => {
+      const txt = cleanText(v);
+      if (isErrorLikeText(txt)) out.push(txt);
+    };
+
+    if (input.getAttribute('aria-invalid') === 'true') push('Поле невалидно');
+    push(input.getAttribute('title'));
+    push(input.getAttribute('aria-label'));
+
+    const errId = input.getAttribute('aria-errormessage');
+    const descId = input.getAttribute('aria-describedby');
+    [errId, descId].forEach((idList) => {
+      if (!idList) return;
+      idList.split(/\s+/).forEach((id) => {
+        const n = document.getElementById(id);
+        if (n) push(n.textContent);
+      });
+    });
+
+    const selectors = [
+      '[role="alert"]',
+      '[role="tooltip"]',
+      '[aria-live]',
+      '[class*="error"]',
+      '[class*="Error"]',
+      '[class*="tooltip"]',
+      '[class*="Tooltip"]',
+      '[class*="warning"]',
+      '[class*="Warning"]',
+      '[class*="notification"]',
+      '[class*="Notification"]',
+      '[class*="message"]',
+      '[class*="Message"]'
+    ].join(',');
+
+    for (const el of Array.from(document.querySelectorAll(selectors))) {
       if (el.closest('#' + ID)) continue;
-      const txt = visibleText(el).toLowerCase();
-      if (txt && keys.some((k) => txt.includes(k))) return txt;
+      push(el.textContent);
     }
-    return null;
+
+    return Array.from(new Set(out));
   }
 
   function reactSet(input, val) {
@@ -111,14 +176,22 @@
 
   async function waitOutcome(input, prevRows, timeoutMs) {
     const start = Date.now();
+    const baselineErrors = new Set(collectErrorTexts(input));
     while (Date.now() - start < timeoutMs) {
       if (!document.body.contains(input)) return { status: 'failed', message: 'Поле исчезло' };
       if ((input.value || '') === '') return { status: 'added' };
       if (rowCount(input) > prevRows) return { status: 'added' };
-      const err = errorText(input);
-      if (err) return { status: 'failed', message: err };
+
+      const nowErrors = collectErrorTexts(input);
+      const fresh = nowErrors.find((txt) => !baselineErrors.has(txt));
+      if (fresh) {
+        dbg('err', fresh);
+        return { status: 'failed', message: fresh };
+      }
+
       await sleep(80);
     }
+    dbg('timeout');
     return { status: 'timeout', message: 'Таймаут' };
   }
 
@@ -224,6 +297,7 @@
   }
 
   async function main() {
+    dbg('start');
     removeOld();
 
     if (!isEligible()) {
@@ -254,6 +328,7 @@
       const parsed = parseCodes(raw);
       const codes = parsed.codes;
       const skippedBlank = parsed.skipped;
+      dbg('run', codes.length, 'skippedBlank', skippedBlank);
 
       if (!codes.length) {
         alert(T.noCodes);
@@ -293,6 +368,7 @@
         if (res.status === 'added') {
           added += 1;
           lastStatus = '✓ ' + code;
+          dbg('ok', i + 1);
         } else {
           failed += 1;
           failedItems.push({
@@ -300,6 +376,7 @@
             reason: res && res.message ? res.message : (res.status === 'timeout' ? 'Таймаут ожидания' : 'Не удалось добавить')
           });
           lastStatus = '✗ ' + code;
+          dbg('fail', i + 1, res && res.message ? res.message : res.status);
         }
         setCounts();
 
@@ -307,6 +384,7 @@
       }
 
       const skipped = skippedBlank + Math.max(0, codes.length - processed);
+      dbg('summary', { added, failed, skipped });
       summaryStep(card, { added, failed, skipped, failedItems }, close);
     }, close);
 
