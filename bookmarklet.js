@@ -270,13 +270,18 @@
       let failed = 0;
       let processed = 0;
       const failedCodes = [];
+      let lastStatus = '—';
+
+      const setCounts = () => {
+        ui.counts.textContent = '✓ ' + added + ' | ✗ ' + failed + ' | последний: ' + lastStatus;
+      };
 
       for (let i = 0; i < codes.length; i += 1) {
         if (stopRequested) break;
 
         const code = codes[i];
         ui.line.textContent = T.running + ' ' + (i + 1) + ' из ' + codes.length;
-        ui.counts.textContent = '✓ ' + added + ' | ✗ ' + failed + ' | последний: —';
+        setCounts();
 
         const prev = rowCount(input);
         sendCode(input, code);
@@ -285,12 +290,13 @@
         processed += 1;
         if (res.status === 'added') {
           added += 1;
-          ui.counts.textContent = '✓ ' + added + ' | ✗ ' + failed + ' | последний: ✓ ' + code;
+          lastStatus = '✓ ' + code;
         } else {
           failed += 1;
           failedCodes.push(code);
-          ui.counts.textContent = '✓ ' + added + ' | ✗ ' + failed + ' | последний: ✗ ' + code;
+          lastStatus = '✗ ' + code;
         }
+        setCounts();
 
         await sleep(GAP);
       }

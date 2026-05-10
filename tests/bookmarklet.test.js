@@ -146,6 +146,35 @@ test('processes valid codes, skips blanks, and supports rerun without reload', a
   assert.ok(getOverlay(env.document));
 });
 
+test('keeps latest processed status visible while next code is running', async () => {
+  const env = createDom();
+
+  env.input.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    const submitted = env.input.value;
+    const delay = submitted === 'CODE-2' ? 450 : 20;
+    setTimeout(() => {
+      const tr = env.document.createElement('tr');
+      env.tbody.appendChild(tr);
+      env.input.value = '';
+    }, delay);
+  });
+
+  runBookmarklet(env.dom);
+  await waitFor(() => !!getOverlay(env.document), { label: 'overlay open' });
+
+  env.document.querySelector('textarea').value = 'CODE-1\nCODE-2';
+  clickButtonByText(env.document, 'Добавить');
+
+  await waitFor(
+    () => (getOverlay(env.document)?.textContent || '').includes('Добавляется код 2 из 2'),
+    { label: 'second code started' }
+  );
+
+  const duringSecond = getOverlay(env.document).textContent || '';
+  assert.match(duringSecond, /последний:\s*✓\s*CODE-1/);
+});
+
 test('records failed code when error tooltip appears', async () => {
   const env = createDom();
   const failedCode = 'garbage123';
