@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Массовое добавление кодов</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <section id="inputView" class="view">
+        <h1>Массовое добавление кодов маркировки</h1>
+        <p class="hint">
+          Расширение само найдёт поле ввода на странице МойСклад. Вставьте коды по одному в строке.
+        </p>
+
+        <label class="field">
+          <span>Коды</span>
+          <textarea id="codes" placeholder="0104850035693014215n&gt;Y9XRcEY2bF"></textarea>
+        </label>
+
+        <div class="actions">
+          <button id="sendBtn" type="button">Добавить</button>
+        </div>
+
+        <button id="diagnosticsToggle" type="button" class="link-button">
+          Диагностика
+        </button>
+
+        <section id="diagnosticsPanel" class="diagnostics hidden">
+          <div class="row">
+            <label class="check">
+              <input id="clearFirst" type="checkbox" checked>
+              <span>Очищать поле перед каждым кодом</span>
+            </label>
+          </div>
+
+          <div class="row row-settings">
+            <label class="field field-small">
+              <span>Пауза (мс)</span>
+              <input id="delayMs" type="number" min="0" step="50" value="100">
+            </label>
+
+            <label class="field field-small">
+              <span>Таймаут (мс)</span>
+              <input id="timeoutMs" type="number" min="500" step="250" value="5000">
+            </label>
+          </div>
+        </section>
+      </section>
+
+      <section id="progressView" class="view hidden">
+        <h1>Массовое добавление кодов маркировки</h1>
+        <div id="progressLine" class="line"></div>
+        <div id="progressCounts" class="counts"></div>
+        <div class="actions">
+          <button id="stopBtn" type="button" class="button-secondary">Стоп</button>
+        </div>
+      </section>
+
+      <section id="summaryView" class="view hidden">
+        <h1>Готово</h1>
+        <div id="summaryCounts" class="line"></div>
+        <textarea id="summaryDetails" class="details" readonly></textarea>
+        <div class="actions actions-summary">
+          <button id="copyBtn" type="button" class="button-secondary">Скопировать ошибки</button>
+          <button id="resetBtn" type="button">Новый запуск</button>
+        </div>
+      </section>
+
+      <pre id="status" class="status hidden" aria-live="polite"></pre>
+    </main>
+
+    <script src="lib/bulk-session.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

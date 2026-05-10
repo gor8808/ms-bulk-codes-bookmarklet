@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Массовые коды МойСклад",
+  "version": "0.1.0",
+  "description": "Массовое добавление кодов в МойСклад через chrome.debugger.",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://online.moysklad.ru/*"
+  ],
+  "action": {
+    "default_title": "Массовые коды МойСклад",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "service-worker.js"
+  }
+}

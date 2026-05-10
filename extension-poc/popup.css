@@ -1,0 +1,168 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 13px/1.4 Arial, sans-serif;
+  background: #f5f7fa;
+  color: #18202a;
+}
+
+.app {
+  width: 420px;
+  padding: 14px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.view.hidden,
+.status.hidden,
+.diagnostics.hidden {
+  display: none;
+}
+
+.hint {
+  margin: 0 0 12px;
+  color: #465466;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+textarea,
+input[type="number"] {
+  width: 100%;
+  border: 1px solid #b8c2cc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.row-settings {
+  align-items: end;
+}
+
+.field-small {
+  flex: 1;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.actions {
+  margin: 10px 0 12px;
+}
+
+.link-button {
+  width: auto;
+  padding: 0;
+  margin: 2px 0 10px;
+  border: 0;
+  background: transparent;
+  color: #1066d8;
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.diagnostics {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: #1066d8;
+}
+
+.button-secondary {
+  background: #fff;
+  color: #b42318;
+  border: 1px solid #d0d5dd;
+}
+
+.actions-summary {
+  display: flex;
+  gap: 10px;
+}
+
+.actions-summary button {
+  width: auto;
+  flex: 1;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.line,
+.counts {
+  margin-bottom: 10px;
+}
+
+.line {
+  font-size: 14px;
+}
+
+.counts {
+  color: #344054;
+}
+
+.details {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid #b8c2cc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: 12px/1.45 Consolas, monospace;
+  background: #fff;
+}
+
+.status {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #0f1720;
+  color: #d7e0ea;
+  white-space: pre-wrap;
+}
