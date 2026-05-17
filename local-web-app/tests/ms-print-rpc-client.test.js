@@ -1,0 +1,76 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  DEFAULT_MODULE_BASE,
+  buildRequestDocumentPayload,
+  buildTaskPayload,
+  buildTemplatePayload,
+  extractAsyncTaskId,
+  extractPdfUrl,
+  parseTemplateMetadata,
+  responseContainsTemplate,
+} = require('../server/lib/ms-print-rpc-client');
+
+test('extractAsyncTaskId reads MoySklad async task id', () => {
+  assert.equal(extractAsyncTaskId('//OK["ASYNC:11111111-2222-3333-4444-555555555555"]'), '11111111-2222-3333-4444-555555555555');
+  assert.equal(extractAsyncTaskId('no task'), '');
+});
+
+test('extractPdfUrl reads temporary print-prod PDF URL', () => {
+  const url = 'https://print-prod.moysklad.ru/temp/a/b/file.pdf';
+  assert.equal(extractPdfUrl(`["done","${url}"]`), url);
+  assert.equal(extractPdfUrl('pending'), '');
+});
+
+test('responseContainsTemplate checks target template name', () => {
+  assert.equal(responseContainsTemplate('Код маркировки и ШК.xml'), true);
+  assert.equal(responseContainsTemplate('Другой шаблон'), false);
+});
+
+test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
+  const payload = buildTemplatePayload(DEFAULT_MODULE_BASE);
+  assert.equal(payload.startsWith(`7|0|6|${DEFAULT_MODULE_BASE}|C552A96838172DB5F7717A1B2EC74FD0|`), true);
+  assert.equal(payload.includes('|getTemplate|java.lang.String/2004016611|EmissionOrder|'), true);
+});
+
+test('buildTaskPayload matches MoySklad GWT-RPC task polling shape', () => {
+  const payload = buildTaskPayload('203b5527-51f4-11f1-0a80-056b0002e0f2');
+  assert.equal(payload.includes('ExportImportService|getTask|'), true);
+  assert.equal(payload.includes('|203b5527-51f4-11f1-0a80-056b0002e0f2|'), true);
+});
+
+test('parseTemplateMetadata extracts template values from GWT-RPC response string table', () => {
+  const response = '//OK["java.util.UUID/2940008275","22920a00-185d-11ec-0a80-04c00001a91c","Код маркировки и ШК.xml","Template","admin@example.com","token-1","Код маркировки и ШК","template-id","EmissionOrder"]';
+  assert.deepEqual(parseTemplateMetadata(response), {
+    fileName: 'Код маркировки и ШК.xml',
+    templateType: 'Template',
+    ownerLogin: 'admin@example.com',
+    templateToken: 'token-1',
+    templateName: 'Код маркировки и ШК',
+    templateId: 'template-id',
+    accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+  });
+});
+
+test('buildRequestDocumentPayload substitutes document, position, quantity, and template metadata', () => {
+  const payload = buildRequestDocumentPayload({
+    documentId: '39732d8d-5124-11f1-0a80-1385001c4e14',
+    positionId: 'fe298f4d-5124-11f1-0a80-188a001c572d',
+    quantity: 45,
+    template: {
+      fileName: 'Код маркировки и ШК.xml',
+      templateType: 'Template',
+      ownerLogin: 'admin@example.com',
+      templateToken: 'token-1',
+      templateName: 'Код маркировки и ШК',
+      templateId: 'template-id',
+      accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+    },
+  });
+
+  assert.equal(payload.includes('PriceTypePrintService|requestDocument|'), true);
+  assert.equal(payload.includes('|39732d8d-5124-11f1-0a80-1385001c4e14|'), true);
+  assert.equal(payload.includes('|fe298f4d-5124-11f1-0a80-188a001c572d|'), true);
+  assert.equal(payload.includes('|Код маркировки и ШК.xml|Template|admin@example.com|token-1|Код маркировки и ШК|'), true);
+  assert.equal(payload.includes('|0|45|11|'), true);
+});

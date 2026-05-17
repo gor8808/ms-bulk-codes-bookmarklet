@@ -1,0 +1,313 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 14px/1.45 Arial, sans-serif;
+  background: #eef2f7;
+  color: #18202a;
+}
+
+.app {
+  width: min(860px, calc(100vw - 32px));
+  margin: 32px auto;
+  padding: 22px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #d0d5dd;
+}
+
+.tab-button {
+  border-radius: 8px 8px 0 0;
+  color: #344054;
+  background: transparent;
+}
+
+.tab-button.active {
+  color: #fff;
+  background: #1066d8;
+}
+
+.hidden,
+.view.hidden {
+  display: none;
+}
+
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.hint {
+  max-width: 620px;
+  margin: 0 0 12px;
+  color: #465466;
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff8f0;
+  color: #7a3b00;
+  font-size: 12px;
+}
+
+.status-pill.ok {
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.settings,
+.upload-panel {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.drop-zone {
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.drop-zone.drag-over {
+  border-color: #1066d8;
+  background: #f0f4ff;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #b8c2cc;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.settings-grid,
+.org-row,
+.actions-summary,
+.actions-inline {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-grid .field,
+.org-row .field {
+  flex: 1;
+}
+
+.org-row {
+  align-items: flex-start;
+}
+
+.org-row button {
+  margin-top: 26px;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: #1066d8;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.button-secondary {
+  color: #1066d8;
+  background: #fff;
+  border: 1px solid #b8c2cc;
+}
+
+.button-danger {
+  color: #b42318;
+  background: #fff;
+  border: 1px solid #d0d5dd;
+}
+
+.link-button {
+  width: auto;
+  padding: 0;
+  margin: 2px 0 10px;
+  border: 0;
+  background: transparent;
+  color: #1066d8;
+  font: inherit;
+  font-weight: 400;
+}
+
+.file-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.file-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #465466;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-error {
+  min-height: 18px;
+  margin-top: 4px;
+  color: #b42318;
+  font-size: 12px;
+}
+
+.parse-summary {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f0f4ff;
+  color: #344054;
+  font-size: 12px;
+}
+
+.parse-summary.has-skipped {
+  background: #fff8f0;
+}
+
+.inline-status {
+  align-self: center;
+  color: #067647;
+  font-size: 13px;
+}
+
+.actions {
+  margin-top: 12px;
+}
+
+.start-hint {
+  min-height: 18px;
+  margin-top: 6px;
+  color: #465466;
+  font-size: 12px;
+}
+
+.line,
+.counts {
+  margin-bottom: 12px;
+}
+
+.line {
+  font-size: 16px;
+}
+
+.counts {
+  color: #344054;
+}
+
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e7ec;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: #1066d8;
+  transition: width 160ms ease;
+}
+
+.details {
+  min-height: 260px;
+  resize: vertical;
+  font: 12px/1.45 Consolas, monospace;
+}
+
+.url-list {
+  min-height: 170px;
+  resize: vertical;
+}
+
+.print-login-row {
+  margin-bottom: 14px;
+}
+
+.download-button {
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #fff;
+  background: #1066d8;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.actions-summary button {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  .app {
+    width: calc(100vw - 20px);
+    margin: 10px auto;
+    padding: 14px;
+  }
+
+  .page-head,
+  .settings-grid,
+  .org-row,
+  .actions-inline {
+    display: block;
+  }
+
+  .status-pill {
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+
+  .org-row button,
+  .actions-inline button {
+    width: 100%;
+    margin-top: 0;
+  }
+}

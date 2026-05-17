@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Заказ кодов маркировки</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <nav class="tabs" aria-label="Рабочие процессы">
+        <button id="createTabBtn" type="button" class="tab-button active">Создать заказы</button>
+        <button id="printTabBtn" type="button" class="tab-button">Печать кодов</button>
+      </nav>
+
+      <section id="inputView" class="view">
+        <div class="page-head">
+          <div>
+            <h1>Заказ кодов маркировки</h1>
+            <p class="hint">Загрузите XLSX с колонками штрихкода и количества, затем создайте документы ввода в оборот через API МойСклад.</p>
+          </div>
+          <div class="status-pill" id="settingsPill">Настройки не сохранены</div>
+        </div>
+
+        <button id="settingsToggle" type="button" class="link-button">Настройки ▾</button>
+
+        <section id="settingsPanel" class="settings hidden">
+          <label class="field">
+            <span>Авторизация</span>
+            <select id="authMode">
+              <option value="token">API токен</option>
+              <option value="basic">Логин + пароль</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>API токен</span>
+            <input id="apiToken" type="password" autocomplete="off" placeholder="Bearer token">
+            <div id="apiTokenError" class="field-error"></div>
+          </label>
+
+          <div id="basicAuthFields" class="settings-grid hidden">
+            <label class="field">
+              <span>Логин</span>
+              <input id="login" type="text" autocomplete="username" placeholder="user@example.com">
+              <div id="loginError" class="field-error"></div>
+            </label>
+
+            <label class="field">
+              <span>Пароль</span>
+              <input id="password" type="password" autocomplete="current-password">
+              <div id="passwordError" class="field-error"></div>
+            </label>
+          </div>
+
+          <div class="org-row">
+            <label class="field">
+              <span>Организация</span>
+              <select id="organizationSelect"></select>
+              <div id="organizationError" class="field-error"></div>
+            </label>
+            <button id="loadOrgsBtn" type="button" class="button-secondary">Загрузить</button>
+          </div>
+
+          <div class="settings-grid">
+            <label class="field">
+              <span>Тип маркировки</span>
+              <select id="trackingType"></select>
+            </label>
+
+            <label class="field">
+              <span>Способ ввода</span>
+              <select id="emissionType"></select>
+            </label>
+          </div>
+
+          <div class="actions-inline">
+            <button id="saveSettingsBtn" type="button">Сохранить настройки</button>
+            <span id="settingsStatus" class="inline-status"></span>
+          </div>
+        </section>
+
+        <section id="dropZone" class="upload-panel drop-zone">
+          <label class="field">
+            <span>Файл XLSX</span>
+            <div class="file-row">
+              <button id="chooseFileBtn" type="button" class="button-secondary">Выбрать файл</button>
+              <div id="fileName" class="file-name">Файл не выбран</div>
+            </div>
+            <input id="fileInput" class="hidden" type="file" accept=".xlsx,.xls">
+          </label>
+
+          <div id="parseSummary" class="parse-summary hidden"></div>
+          <div id="fileError" class="field-error"></div>
+
+          <div class="actions">
+            <button id="startBtn" type="button" disabled>Создать заказы</button>
+            <div id="startHint" class="start-hint"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="printInputView" class="view hidden">
+        <div class="page-head">
+          <div>
+            <h1>Печать кодов</h1>
+            <p class="hint">Откройте сессию МойСклад в браузере, добавьте ссылки на заказы кодов маркировки и скачайте один ZIP с PDF.</p>
+          </div>
+          <div class="status-pill" id="browserStatusPill">Браузер не проверен</div>
+        </div>
+
+        <section class="upload-panel">
+          <div class="actions-inline print-login-row">
+            <button id="browserLoginBtn" type="button">Войти в МойСклад</button>
+            <span id="browserLoginStatus" class="inline-status"></span>
+          </div>
+
+          <label class="field">
+            <span>Ссылки на заказы кодов маркировки</span>
+            <textarea id="printUrls" class="url-list" placeholder="https://online.moysklad.ru/app/#emissionorder/edit?id=..."></textarea>
+            <div id="printUrlsError" class="field-error"></div>
+          </label>
+
+          <div id="printValidation" class="parse-summary hidden"></div>
+
+          <div class="actions actions-summary">
+            <button id="validatePrintBtn" type="button" class="button-secondary">Проверить документы</button>
+            <button id="startPrintBtn" type="button" disabled>Скачать ZIP</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="printProgressView" class="view hidden">
+        <h1>Печать кодов</h1>
+        <div id="printProgressDocs" class="line">Документы: 0 из 0</div>
+        <div id="printProgressPositions" class="counts">Позиции: 0 из 0</div>
+        <div id="printProgressLast" class="counts">Последний файл: </div>
+        <div class="progress-track"><div id="printProgressBar" class="progress-bar"></div></div>
+      </section>
+
+      <section id="printSummaryView" class="view hidden">
+        <h1>Готово</h1>
+        <div id="printSummaryCounts" class="line"></div>
+        <textarea id="printSummaryDetails" class="details" readonly></textarea>
+        <div class="actions actions-summary">
+          <a id="downloadZipLink" class="download-button hidden" href="#">Скачать ZIP</a>
+          <button id="printResetBtn" type="button">Новый ZIP</button>
+        </div>
+      </section>
+
+      <section id="progressView" class="view hidden">
+        <h1>Выполнение</h1>
+        <div id="progressLine" class="line">Подготовка...</div>
+        <div id="progressCounts" class="counts">✓ 0 | ✗ 0</div>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <div class="actions">
+          <button id="stopBtn" type="button" class="button-danger">Стоп</button>
+        </div>
+      </section>
+
+      <section id="summaryView" class="view hidden">
+        <h1>Готово</h1>
+        <div id="summaryCounts" class="line"></div>
+        <textarea id="summaryDetails" class="details" readonly></textarea>
+        <div class="actions actions-summary">
+          <button id="copyBtn" type="button" class="button-secondary">Скопировать ошибки</button>
+          <button id="resetBtn" type="button">Новый запуск</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="vendor/xlsx.min.js"></script>
+    <script src="lib/xlsx-parser-core.js"></script>
+    <script src="lib/xlsx-parser.js"></script>
+    <script src="lib/settings-store.js"></script>
+    <script src="lib/api-client.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

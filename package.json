@@ -6,7 +6,10 @@
   "scripts": {
     "test": "node --test",
     "build:install": "node scripts/generate-install-page.js",
-    "test:extension": "node --test tests/cdp-sequence.test.js tests/outcome-evaluator.test.js tests/service-observation-shape.test.js tests/bulk-session.test.js tests/response-parser.test.js"
+    "test:extension": "node --test tests/cdp-sequence.test.js tests/outcome-evaluator.test.js tests/service-observation-shape.test.js tests/bulk-session.test.js tests/response-parser.test.js",
+    "test:local-app": "node --test local-web-app/tests/*.test.js",
+    "start:local-app": "node local-web-app/server.js",
+    "install:local-app": "node scripts/install-local-app.js"
   },
   "keywords": [],
   "author": "",
@@ -14,5 +17,8 @@
   "type": "commonjs",
   "devDependencies": {
     "jsdom": "^29.1.1"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
   }
 }

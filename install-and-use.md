@@ -1,5 +1,50 @@
 # Установка и использование bookmarklet для МойСклад
 
+## Локальное веб-приложение
+
+Для веб-приложения с XLSX-загрузкой и печатью PDF из заказов кодов маркировки запустите один раз из папки проекта:
+
+```bash
+npm run install:local-app
+```
+
+Команда:
+
+- устанавливает npm-зависимости;
+- устанавливает Playwright и Chromium для входа в МойСклад через обычный браузер;
+- создает локальные папки `.downloads`, `.browser-profile`, `.logs`;
+- на macOS добавляет LaunchAgent;
+- на Windows добавляет задачу Task Scheduler;
+- запускает приложение при входе пользователя в систему.
+
+Адрес приложения:
+
+```text
+http://localhost:5177
+```
+
+Запуск вручную:
+
+```bash
+npm run start:local-app
+```
+
+Если порт `5177` уже занят и нужно перезапустить приложение, остановите старый процесс.
+
+macOS:
+
+```bash
+lsof -nP -iTCP:5177 -sTCP:LISTEN
+kill <PID>
+```
+
+Windows PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 5177 -State Listen | Select-Object OwningProcess
+Stop-Process -Id <PID>
+```
+
 ## 1) Установка (один раз)
 
 1. Откройте файл `bookmarklet.url.txt`.
