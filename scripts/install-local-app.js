@@ -18,12 +18,18 @@ function quote(value) {
   return `"${String(value).replace(/"/g, '\\"')}"`;
 }
 
+function shellQuote(arg) {
+  if (arg.startsWith('"')) return arg; // already quoted
+  return /\s/.test(arg) ? `"${arg}"` : arg;
+}
+
 function run(command, args, options = {}) {
   const label = [command, ...args].join(' ');
   console.log(`\n> ${label}`);
   const isWindows = process.platform === 'win32';
-  // On Windows, pass command+args as a single string to avoid DEP0190 warning
-  const result = spawnSync(isWindows ? label : command, isWindows ? [] : args, {
+  // On Windows, build a single shell string (avoids DEP0190); quote spaced args
+  const shellCmd = [command, ...args.map(shellQuote)].join(' ');
+  const result = spawnSync(isWindows ? shellCmd : command, isWindows ? [] : args, {
     cwd: options.cwd || ROOT_DIR,
     env: { ...process.env, ...(options.env || {}) },
     stdio: 'inherit',
