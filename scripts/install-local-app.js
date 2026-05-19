@@ -25,7 +25,7 @@ function run(command, args, options = {}) {
     cwd: options.cwd || ROOT_DIR,
     env: { ...process.env, ...(options.env || {}) },
     stdio: 'inherit',
-    shell: Boolean(options.shell),
+    shell: Boolean(options.shell) || process.platform === 'win32',
   });
 
   if (result.error) {
