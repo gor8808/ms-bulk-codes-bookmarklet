@@ -109,7 +109,8 @@ async function installMacLaunchAgent() {
 }
 
 function installWindowsTask() {
-  const taskCommand = `${quote(process.execPath)} ${quote(SERVER_PATH)}`;
+  // schtasks /TR needs the full command as one outer-quoted string with inner paths escaped
+  const taskCommand = `"\\"${process.execPath}\\" \\"${SERVER_PATH}\\""`;
   spawnSync('schtasks', ['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], { stdio: 'ignore' });
   run('schtasks', [
     '/Create',
