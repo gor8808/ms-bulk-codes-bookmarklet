@@ -21,11 +21,13 @@ function quote(value) {
 function run(command, args, options = {}) {
   const label = [command, ...args].join(' ');
   console.log(`\n> ${label}`);
-  const result = spawnSync(command, args, {
+  const isWindows = process.platform === 'win32';
+  // On Windows, pass command+args as a single string to avoid DEP0190 warning
+  const result = spawnSync(isWindows ? label : command, isWindows ? [] : args, {
     cwd: options.cwd || ROOT_DIR,
     env: { ...process.env, ...(options.env || {}) },
     stdio: 'inherit',
-    shell: Boolean(options.shell) || process.platform === 'win32',
+    shell: Boolean(options.shell) || isWindows,
   });
 
   if (result.error) {
@@ -38,7 +40,7 @@ function run(command, args, options = {}) {
 }
 
 function commandName(name) {
-  return process.platform === 'win32' ? `${name}.cmd` : name;
+  return name;
 }
 
 async function ensureDirs() {
