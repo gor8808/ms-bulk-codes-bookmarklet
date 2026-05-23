@@ -109,8 +109,15 @@ async function installMacLaunchAgent() {
 }
 
 function installWindowsTask() {
-  // schtasks /TR needs the full command as one outer-quoted string with inner paths escaped
-  const taskCommand = `"\\"${process.execPath}\\" \\"${SERVER_PATH}\\""`;
+  // Write a VBScript launcher so the scheduled task runs Node.js with no visible window.
+  // WScript.Shell.Run with window style 0 = hidden.
+  const launcherPath = path.join(APP_DIR, 'start-hidden.vbs');
+  const vbs =
+    `CreateObject("WScript.Shell").Run """${process.execPath}"" ""${SERVER_PATH}""", 0, False\r\n`;
+  fs.writeFileSync(launcherPath, vbs, 'utf8');
+
+  // Point the task at wscript.exe //B (no splash) so no console window appears.
+  const taskCommand = `"\\"${process.env.SystemRoot || 'C:\\Windows'}\\System32\\wscript.exe\\" //B \\"${launcherPath}\\""`;
   spawnSync('schtasks', ['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], { stdio: 'ignore' });
   run('schtasks', [
     '/Create',
@@ -124,7 +131,7 @@ function installWindowsTask() {
   ]);
   run('schtasks', ['/Run', '/TN', WINDOWS_TASK_NAME]);
 
-  console.log(`\nAutostart installed: Windows scheduled task "${WINDOWS_TASK_NAME}"`);
+  console.log(`\nAutostart installed: Windows scheduled task "${WINDOWS_TASK_NAME}" (hidden via ${launcherPath})`);
 }
 
 async function installAutostart() {
