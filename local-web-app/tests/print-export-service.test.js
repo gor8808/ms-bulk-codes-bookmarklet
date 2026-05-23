@@ -69,8 +69,8 @@ test('PrintExportService validate loads documents and builds printable file name
   assert.equal(result.ok, true);
   assert.equal(result.documents[0].name, '00468');
   assert.deepEqual(result.documents[0].positions.map((position) => position.fileName), [
-    'Bdm2-55d БЕЛЫЙ р.104(36-48).pdf',
-    'Bdm2-55d БЕЛЫЙ р.104(36-48).pdf',
+    'Bdm2-55d БЕЛЫЙ р.104(36-48) - 45шт.pdf',
+    'Bdm2-55d БЕЛЫЙ р.104(36-48) - 12шт.pdf',
   ]);
 });
 
@@ -93,8 +93,8 @@ test('PrintExportService run prints every position, dedupes ZIP names, and repor
     { documentId: DOCUMENT_ID, positionId: 'pos-2', quantity: 12 },
   ]);
   assert.deepEqual(calls.entries.map((entry) => entry.name), [
-    'Bdm2-55d БЕЛЫЙ р.104(36-48).pdf',
-    'Bdm2-55d БЕЛЫЙ р.104(36-48) (2).pdf',
+    'Bdm2-55d БЕЛЫЙ р.104(36-48) - 45шт.pdf',
+    'Bdm2-55d БЕЛЫЙ р.104(36-48) - 12шт.pdf',
   ]);
   assert.equal(progress.length, 2);
   assert.equal(progress[1].positionsCurrent, 2);

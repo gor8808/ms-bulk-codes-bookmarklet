@@ -13,7 +13,16 @@ function sanitizeSegment(value, fallback) {
   return cleaned || fallback;
 }
 
-function buildPdfFileName({ productName, article }) {
+function formatQuantitySuffix(quantity) {
+  const value = Number(quantity);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '';
+  }
+
+  return ` - ${Math.trunc(value)}шт`;
+}
+
+function buildPdfFileName({ productName, article, quantity }) {
   let base = String(productName || '').replace(LEADING_BARCODE, '').trim();
   const cleanArticle = String(article || '').trim();
 
@@ -25,7 +34,7 @@ function buildPdfFileName({ productName, article }) {
   }
 
   base = base.replace(TRAILING_MARKER, '').trim();
-  return `${sanitizeSegment(base, cleanArticle || 'position')}.pdf`;
+  return `${sanitizeSegment(base, cleanArticle || 'position')}${formatQuantitySuffix(quantity)}.pdf`;
 }
 
 function sanitizeZipFolderName(name) {
@@ -59,5 +68,6 @@ function dedupeFileName(fileName, usedNames) {
 module.exports = {
   buildPdfFileName,
   dedupeFileName,
+  formatQuantitySuffix,
   sanitizeZipFolderName,
 };
