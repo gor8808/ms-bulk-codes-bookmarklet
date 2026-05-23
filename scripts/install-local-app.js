@@ -109,29 +109,28 @@ async function installMacLaunchAgent() {
 }
 
 function installWindowsTask() {
-  // Write a VBScript launcher so the scheduled task runs Node.js with no visible window.
-  // WScript.Shell.Run with window style 0 = hidden.
+  // Write a VBScript launcher that starts Node.js with no visible window.
+  // WScript.Shell.Run window style 0 = hidden; False = don't wait.
   const launcherPath = path.join(APP_DIR, 'start-hidden.vbs');
   const vbs =
     `CreateObject("WScript.Shell").Run """${process.execPath}"" ""${SERVER_PATH}""", 0, False\r\n`;
   fs.writeFileSync(launcherPath, vbs, 'utf8');
 
-  // Point the task at wscript.exe //B (no splash) so no console window appears.
-  const taskCommand = `"\\"${process.env.SystemRoot || 'C:\\Windows'}\\System32\\wscript.exe\\" //B \\"${launcherPath}\\""`;
-  spawnSync('schtasks', ['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], { stdio: 'ignore' });
-  run('schtasks', [
-    '/Create',
-    '/TN',
-    WINDOWS_TASK_NAME,
-    '/SC',
-    'ONLOGON',
-    '/TR',
-    taskCommand,
-    '/F',
+  // HKCU Run key requires no admin rights (unlike schtasks /SC ONLOGON).
+  const wscriptCmd = `wscript.exe //B "${launcherPath}"`;
+  run('reg', [
+    'add',
+    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+    '/v', WINDOWS_TASK_NAME,
+    '/t', 'REG_SZ',
+    '/d', wscriptCmd,
+    '/f',
   ]);
-  run('schtasks', ['/Run', '/TN', WINDOWS_TASK_NAME]);
 
-  console.log(`\nAutostart installed: Windows scheduled task "${WINDOWS_TASK_NAME}" (hidden via ${launcherPath})`);
+  // Start the server immediately without opening a window.
+  spawnSync('wscript.exe', ['//B', launcherPath], { stdio: 'ignore', shell: true });
+
+  console.log(`\nAutostart installed: registry Run key "${WINDOWS_TASK_NAME}" (hidden via ${launcherPath})`);
 }
 
 async function installAutostart() {
