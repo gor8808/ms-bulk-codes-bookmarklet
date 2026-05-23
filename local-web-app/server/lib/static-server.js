@@ -12,8 +12,10 @@ const MIME_TYPES = {
 
 function serveStatic(req, res, publicDir) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const safePath = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
-  const requestedPath = safePath === '/' ? '/index.html' : safePath;
+  const rawPath = decodeURIComponent(url.pathname);
+  // path.normalize('/') returns '\' on Windows, so compare the raw URL path for the root check
+  const safePath = path.normalize(rawPath).replace(/^(\.\.[/\\])+/, '');
+  const requestedPath = rawPath === '/' ? 'index.html' : safePath;
   const filePath = path.join(publicDir, requestedPath);
 
   if (!filePath.startsWith(publicDir)) {
