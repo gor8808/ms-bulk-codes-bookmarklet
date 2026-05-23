@@ -10,7 +10,6 @@ const {
   buildTemplatePayload,
   extractGwtPermutation,
   extractModuleBase,
-  extractServicePathsFromBundle,
   extractAsyncTaskId,
   extractPdfUrl,
   parseRuntimeConfigFromHtml,
@@ -72,26 +71,6 @@ test('extractGwtPermutation reads first GWT permutation strong name', () => {
   assert.equal(extractGwtPermutation('no permutation'), '');
 });
 
-test('extractServicePathsFromBundle reads GWT service URLs from cache JS', () => {
-  const bundle = [
-    '"https://online.moysklad.ru/app/services/r1671/NewTemplateService"',
-    '"/app/services/r1671/print/PriceTypePrintService"',
-    '"app/services/r1671/ExportImportService"',
-    '"\\/app\\/services\\/r1671\\/TemplateService"',
-  ].join(';');
-
-  assert.deepEqual(extractServicePathsFromBundle(bundle, ['TemplateService', 'NewTemplateService']), [
-    '/app/services/r1671/NewTemplateService',
-    '/app/services/r1671/TemplateService',
-  ]);
-  assert.deepEqual(extractServicePathsFromBundle(bundle, 'PriceTypePrintService'), [
-    '/app/services/r1671/print/PriceTypePrintService',
-  ]);
-  assert.deepEqual(extractServicePathsFromBundle(bundle, 'ExportImportService'), [
-    '/app/services/r1671/ExportImportService',
-  ]);
-});
-
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
   const payload = buildTemplatePayload(DEFAULT_MODULE_BASE);
   assert.equal(payload.startsWith(`7|0|6|${DEFAULT_MODULE_BASE}|C552A96838172DB5F7717A1B2EC74FD0|`), true);
@@ -104,35 +83,18 @@ test('buildTaskPayload matches MoySklad GWT-RPC task polling shape', () => {
   assert.equal(payload.includes('|203b5527-51f4-11f1-0a80-056b0002e0f2|'), true);
 });
 
-test('buildPrintServicePaths includes old print servlet and current service servlet candidates', () => {
+test('buildPrintServicePaths uses MoySklad print servlet path', () => {
   assert.deepEqual(buildPrintServicePaths('r1777'), [
     '/app/services/print/r1777/PriceTypePrintService',
-    '/app/services/r1777/PriceTypePrintService',
-    '/app/services/r1777/print/PriceTypePrintService',
-    '/app/services/print/PriceTypePrintService',
-    '/app/services/PriceTypePrintService',
   ]);
 });
 
-test('template and task service paths include versioned and unversioned candidates', () => {
+test('template and task service paths use versioned MoySklad servlet paths', () => {
   assert.deepEqual(buildTemplateServicePaths('r1777'), [
     '/app/services/r1777/MxTemplateService',
-    '/app/services/r1777/TemplateService',
-    '/app/services/MxTemplateService',
-    '/app/services/TemplateService',
-    '/app/services/print/r1777/MxTemplateService',
-    '/app/services/print/r1777/TemplateService',
-    '/app/services/r1777/print/MxTemplateService',
-    '/app/services/r1777/print/TemplateService',
-    '/app/services/print/MxTemplateService',
-    '/app/services/print/TemplateService',
   ]);
   assert.deepEqual(buildTaskServicePaths('r1777'), [
     '/app/services/r1777/ExportImportService',
-    '/app/services/ExportImportService',
-    '/app/services/print/r1777/ExportImportService',
-    '/app/services/r1777/print/ExportImportService',
-    '/app/services/print/ExportImportService',
   ]);
 });
 
