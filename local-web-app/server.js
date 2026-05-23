@@ -222,6 +222,14 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/diagnostics') {
+    const diag = typeof browserSession.getRuntimeDiagnostics === 'function'
+      ? browserSession.getRuntimeDiagnostics()
+      : '';
+    sendJson(res, 200, { ok: true, diagnostics: diag || '(empty — run a PDF export first)' });
+    return;
+  }
+
   sendJson(res, 404, { ok: false, error: 'Not found' });
 }
 
