@@ -136,7 +136,7 @@ class BrowserSessionService {
         const headers = request.headers();
         const moduleBase = headers['x-gwt-module-base'];
         if (!moduleBase) return;
-        const versionMatch = moduleBase.match(/\/(r\d+)\//i);
+        const versionMatch = moduleBase.match(/\/(r\d+(?:-\d+)?)\//i);
         if (!versionMatch) return;
         finish({
           rpcVersion: versionMatch[1],

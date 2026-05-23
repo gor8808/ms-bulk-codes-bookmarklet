@@ -4,6 +4,7 @@ const DEFAULT_MODULE_BASE = 'https://cdn-static.moysklad.ru/app/cdn/r1668/';
 const DEFAULT_PERMUTATION = '65DD15C4D67E019A7A66BAD8ED43273D';
 const DEFAULT_REF_ID = '0fecd212-1864-11ec-0a80-0865003ffa33';
 const PRINT_PROTOCOL_ERROR = 'Протокол печати МойСклад изменился. Требуется обновление интеграции.';
+const RPC_VERSION_PATTERN = 'r\\d+(?:-\\d+)?';
 
 function firstMatch(text, regex) {
   const match = String(text || '').match(regex);
@@ -18,32 +19,32 @@ function normalizeModuleBase(value) {
 }
 
 function extractRpcVersionFromModuleBase(moduleBase) {
-  return firstMatch(moduleBase, /\/(r\d+)\//i);
+  return firstMatch(moduleBase, new RegExp(`/(${RPC_VERSION_PATTERN})/`, 'i'));
 }
 
 function extractModuleBase(text) {
   const source = String(text || '');
-  const absolute = firstMatch(source, /(https:\/\/cdn-static\.moysklad\.ru\/app\/cdn\/r\d+\/)/i);
+  const absolute = firstMatch(source, new RegExp(`(https://cdn-static\\.moysklad\\.ru/app/cdn/${RPC_VERSION_PATTERN}/)`, 'i'));
   if (absolute) {
     return normalizeModuleBase(absolute);
   }
 
-  const relative = source.match(/["']((?:https?:\/\/online\.moysklad\.ru)?\/app\/cdn\/r\d+\/)["']/i);
+  const relative = source.match(new RegExp(`["']((?:https?://online\\.moysklad\\.ru)?/app/cdn/${RPC_VERSION_PATTERN}/)["']`, 'i'));
   if (relative) {
     return normalizeModuleBase(new URL(relative[1], ONLINE_BASE).href);
   }
 
-  const version = firstMatch(source, /\/app\/(?:cdn\/)?(r\d+)\//i);
+  const version = firstMatch(source, new RegExp(`/app/(?:cdn/)?(${RPC_VERSION_PATTERN})/`, 'i'));
   if (version) {
     return `${ONLINE_BASE}/app/cdn/${version}/`;
   }
 
-  const anyVersionedBase = firstMatch(source, /(https?:\/\/[^"'\s]+\/r\d+\/)/i);
+  const anyVersionedBase = firstMatch(source, new RegExp(`(https?://[^"'\\s]+/${RPC_VERSION_PATTERN}/)`, 'i'));
   if (anyVersionedBase) {
     return normalizeModuleBase(anyVersionedBase);
   }
 
-  const anyVersion = firstMatch(source, /\b(r\d{3,6})\b/i);
+  const anyVersion = firstMatch(source, new RegExp(`\\b(${RPC_VERSION_PATTERN})\\b`, 'i'));
   return anyVersion ? `${ONLINE_BASE}/app/cdn/${anyVersion}/` : '';
 }
 
@@ -138,6 +139,41 @@ function buildPrintServicePaths(rpcVersion) {
   ];
 }
 
+function normalizeServicePath(value) {
+  if (!value) {
+    return '';
+  }
+  const url = String(value).replace(/\\\//g, '/');
+  if (/^https?:\/\//i.test(url)) {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search || ''}`;
+  }
+  return url.startsWith('/') ? url : `/${url}`;
+}
+
+function extractServicePathsFromBundle(text, serviceNames) {
+  const source = String(text || '').replace(/\\\//g, '/');
+  const names = Array.isArray(serviceNames) ? serviceNames : [serviceNames];
+  const paths = [];
+
+  for (const name of names) {
+    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const patterns = [
+      new RegExp(`https?://[^"'\\s]+/app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
+      new RegExp(`/app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
+      new RegExp(`app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
+    ];
+
+    for (const pattern of patterns) {
+      for (const match of source.matchAll(pattern)) {
+        paths.push(normalizeServicePath(match[0]));
+      }
+    }
+  }
+
+  return Array.from(new Set(paths));
+}
+
 function extractGwtStrings(text) {
   return Array.from(String(text || '').matchAll(/"((?:\\.|[^"\\])*)"/g), (match) => {
     try {
@@ -190,6 +226,9 @@ class MoySkladPrintRpcClient {
     this.taskTimeoutMs = options.taskTimeoutMs || 120000;
     this.template = null;
     this.runtimeConfigResolved = Boolean(options.skipRuntimeDiscovery);
+    this.discoveredTemplatePaths = [];
+    this.discoveredPrintPaths = [];
+    this.discoveredTaskPaths = [];
   }
 
   async resolveRuntimeConfig(force = false) {
@@ -228,6 +267,20 @@ class MoySkladPrintRpcClient {
         }
       } catch (_) {
         // The old permutation is still a better fallback than failing before the RPC call.
+      }
+    }
+
+    if (this.permutation && this.moduleBase) {
+      try {
+        const bundleResponse = await request.get(`${this.moduleBase}${this.permutation}.cache.js`);
+        if (bundleResponse.ok()) {
+          const bundle = await bundleResponse.text();
+          this.discoveredTemplatePaths = extractServicePathsFromBundle(bundle, ['MxTemplateService', 'TemplateService']);
+          this.discoveredPrintPaths = extractServicePathsFromBundle(bundle, 'PriceTypePrintService');
+          this.discoveredTaskPaths = extractServicePathsFromBundle(bundle, 'ExportImportService');
+        }
+      } catch (_) {
+        // Fallback candidates below still provide a clear protocol error.
       }
     }
 
@@ -309,7 +362,7 @@ class MoySkladPrintRpcClient {
 
   async getEmissionOrderTemplates() {
     const text = await this.postAny(
-      () => buildTemplateServicePaths(this.rpcVersion),
+      () => [...this.discoveredTemplatePaths, ...buildTemplateServicePaths(this.rpcVersion)],
       () => buildTemplatePayload(this.moduleBase),
     );
     const template = parseTemplateMetadata(text, this.templateName);
@@ -325,7 +378,7 @@ class MoySkladPrintRpcClient {
       await this.getEmissionOrderTemplates();
     }
     const text = await this.postAny(
-      () => buildPrintServicePaths(this.rpcVersion),
+      () => [...this.discoveredPrintPaths, ...buildPrintServicePaths(this.rpcVersion)],
       () => buildRequestDocumentPayload({
         documentId,
         positionId,
@@ -346,7 +399,7 @@ class MoySkladPrintRpcClient {
     const started = Date.now();
     while (Date.now() - started < this.taskTimeoutMs) {
       const text = await this.postAny(
-        () => buildTaskServicePaths(this.rpcVersion),
+        () => [...this.discoveredTaskPaths, ...buildTaskServicePaths(this.rpcVersion)],
         () => buildTaskPayload(taskId, this.moduleBase),
       );
       const downloadUrl = extractPdfUrl(text);
@@ -389,6 +442,7 @@ module.exports = {
   buildTemplateServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
+  extractServicePathsFromBundle,
   extractGwtPermutation,
   extractModuleBase,
   extractAsyncTaskId,

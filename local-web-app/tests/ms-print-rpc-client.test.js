@@ -10,6 +10,7 @@ const {
   buildTemplatePayload,
   extractGwtPermutation,
   extractModuleBase,
+  extractServicePathsFromBundle,
   extractAsyncTaskId,
   extractPdfUrl,
   parseRuntimeConfigFromHtml,
@@ -39,6 +40,10 @@ test('extractModuleBase reads current MoySklad app build URL', () => {
     'https://cdn-static.moysklad.ru/app/cdn/r1777/',
   );
   assert.equal(
+    extractModuleBase('<script src="https://cdn-static.moysklad.ru/app/cdn/r1671-1/app.nocache.js"></script>'),
+    'https://cdn-static.moysklad.ru/app/cdn/r1671-1/',
+  );
+  assert.equal(
     extractModuleBase('<script src="/app/cdn/r1778/app.nocache.js"></script>'),
     'https://online.moysklad.ru/app/cdn/r1778/',
   );
@@ -47,6 +52,7 @@ test('extractModuleBase reads current MoySklad app build URL', () => {
     'https://cdn-static.moysklad.ru/app/assets/r1779/',
   );
   assert.equal(extractModuleBase('window.build="r1780"'), 'https://online.moysklad.ru/app/cdn/r1780/');
+  assert.equal(extractModuleBase('window.build="r1780-2"'), 'https://online.moysklad.ru/app/cdn/r1780-2/');
 });
 
 test('parseRuntimeConfigFromHtml reads RPC version and nocache script URL', () => {
@@ -55,11 +61,35 @@ test('parseRuntimeConfigFromHtml reads RPC version and nocache script URL', () =
     rpcVersion: 'r1777',
     nocacheScriptUrl: 'https://cdn-static.moysklad.ru/app/cdn/r1777/app.nocache.js',
   });
+  assert.equal(
+    parseRuntimeConfigFromHtml('<script src="https://cdn-static.moysklad.ru/app/cdn/r1671-1/app.nocache.js"></script>').rpcVersion,
+    'r1671-1',
+  );
 });
 
 test('extractGwtPermutation reads first GWT permutation strong name', () => {
   assert.equal(extractGwtPermutation('x 0123456789ABCDEF0123456789ABCDEF y'), '0123456789ABCDEF0123456789ABCDEF');
   assert.equal(extractGwtPermutation('no permutation'), '');
+});
+
+test('extractServicePathsFromBundle reads GWT service URLs from cache JS', () => {
+  const bundle = [
+    '"https://online.moysklad.ru/app/services/r1671/NewTemplateService"',
+    '"/app/services/r1671/print/PriceTypePrintService"',
+    '"app/services/r1671/ExportImportService"',
+    '"\\/app\\/services\\/r1671\\/TemplateService"',
+  ].join(';');
+
+  assert.deepEqual(extractServicePathsFromBundle(bundle, ['TemplateService', 'NewTemplateService']), [
+    '/app/services/r1671/NewTemplateService',
+    '/app/services/r1671/TemplateService',
+  ]);
+  assert.deepEqual(extractServicePathsFromBundle(bundle, 'PriceTypePrintService'), [
+    '/app/services/r1671/print/PriceTypePrintService',
+  ]);
+  assert.deepEqual(extractServicePathsFromBundle(bundle, 'ExportImportService'), [
+    '/app/services/r1671/ExportImportService',
+  ]);
 });
 
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
