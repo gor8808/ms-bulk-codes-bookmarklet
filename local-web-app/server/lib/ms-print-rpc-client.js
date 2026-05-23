@@ -83,8 +83,19 @@ function applyRuntimeConfig(client, runtime) {
 }
 
 function extractAsyncTaskId(text) {
-  const match = String(text || '').match(/ASYNC:([0-9a-f-]+)/i);
-  return match ? match[1] : '';
+  const source = String(text || '');
+  const asyncMatch = source.match(/ASYNC:([0-9a-f-]{36})/i);
+  if (asyncMatch) {
+    return asyncMatch[1];
+  }
+
+  const contextualMatch = source.match(/(?:task|async|export|print)[^0-9a-f]{0,80}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  if (contextualMatch) {
+    return contextualMatch[1];
+  }
+
+  const uuidMatches = Array.from(source.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi), (match) => match[0]);
+  return uuidMatches.length === 1 ? uuidMatches[0] : '';
 }
 
 function extractPdfUrl(text) {
@@ -323,7 +334,7 @@ class MoySkladPrintRpcClient {
     );
     const taskId = extractAsyncTaskId(text);
     if (!taskId) {
-      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати. Ответ сервера: ${text.slice(0, 300)}`);
+      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати. Ответ сервера: ${String(text || '').slice(0, 500)}`);
     }
     return taskId;
   }

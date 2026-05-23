@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   DEFAULT_MODULE_BASE,
+  DEFAULT_PERMUTATION,
   buildRequestDocumentPayload,
   buildPrintServicePaths,
   buildTaskServicePaths,
@@ -19,6 +20,9 @@ const {
 
 test('extractAsyncTaskId reads MoySklad async task id', () => {
   assert.equal(extractAsyncTaskId('//OK["ASYNC:11111111-2222-3333-4444-555555555555"]'), '11111111-2222-3333-4444-555555555555');
+  assert.equal(extractAsyncTaskId('//OK["taskId","11111111-2222-3333-4444-555555555555"]'), '11111111-2222-3333-4444-555555555555');
+  assert.equal(extractAsyncTaskId('//OK["11111111-2222-3333-4444-555555555555"]'), '11111111-2222-3333-4444-555555555555');
+  assert.equal(extractAsyncTaskId('//OK["11111111-2222-3333-4444-555555555555","66666666-7777-8888-9999-000000000000"]'), '');
   assert.equal(extractAsyncTaskId('no task'), '');
 });
 
@@ -73,7 +77,7 @@ test('extractGwtPermutation reads first GWT permutation strong name', () => {
 
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
   const payload = buildTemplatePayload(DEFAULT_MODULE_BASE);
-  assert.equal(payload.startsWith(`7|0|6|${DEFAULT_MODULE_BASE}|C552A96838172DB5F7717A1B2EC74FD0|`), true);
+  assert.equal(payload.startsWith(`7|0|6|${DEFAULT_MODULE_BASE}|${DEFAULT_PERMUTATION}|`), true);
   assert.equal(payload.includes('|getTemplate|java.lang.String/2004016611|EmissionOrder|'), true);
 });
 
