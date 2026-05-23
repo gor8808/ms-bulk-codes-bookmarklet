@@ -18,7 +18,7 @@ function normalizeModuleBase(value) {
 }
 
 function extractRpcVersionFromModuleBase(moduleBase) {
-  return firstMatch(moduleBase, /\/cdn\/(r\d+)\//i);
+  return firstMatch(moduleBase, /\/(r\d+)\//i);
 }
 
 function extractModuleBase(text) {
@@ -34,7 +34,17 @@ function extractModuleBase(text) {
   }
 
   const version = firstMatch(source, /\/app\/(?:cdn\/)?(r\d+)\//i);
-  return version ? `${ONLINE_BASE}/app/cdn/${version}/` : '';
+  if (version) {
+    return `${ONLINE_BASE}/app/cdn/${version}/`;
+  }
+
+  const anyVersionedBase = firstMatch(source, /(https?:\/\/[^"'\s]+\/r\d+\/)/i);
+  if (anyVersionedBase) {
+    return normalizeModuleBase(anyVersionedBase);
+  }
+
+  const anyVersion = firstMatch(source, /\b(r\d{3,6})\b/i);
+  return anyVersion ? `${ONLINE_BASE}/app/cdn/${anyVersion}/` : '';
 }
 
 function extractNocacheScriptUrl(text) {
@@ -93,10 +103,30 @@ function buildTaskPayload(taskId, moduleBase = DEFAULT_MODULE_BASE) {
   return `7|0|7|${moduleBase}|B01E8C8D1D04DD6BB1F78BC90694438F|com.lognex.sklad.face.common.client.module.exportimport.ExportImportService|getTask|com.lognex.type.ID/131549306|java.util.UUID/2940008275|${taskId}|1|2|3|4|1|5|5|6|7|`;
 }
 
+function buildTemplateServicePaths(rpcVersion) {
+  return [
+    `/app/services/${rpcVersion}/MxTemplateService`,
+    '/app/services/MxTemplateService',
+    `/app/services/print/${rpcVersion}/MxTemplateService`,
+    '/app/services/print/MxTemplateService',
+  ];
+}
+
+function buildTaskServicePaths(rpcVersion) {
+  return [
+    `/app/services/${rpcVersion}/ExportImportService`,
+    '/app/services/ExportImportService',
+    `/app/services/print/${rpcVersion}/ExportImportService`,
+    '/app/services/print/ExportImportService',
+  ];
+}
+
 function buildPrintServicePaths(rpcVersion) {
   return [
     `/app/services/print/${rpcVersion}/PriceTypePrintService`,
     `/app/services/${rpcVersion}/PriceTypePrintService`,
+    '/app/services/print/PriceTypePrintService',
+    '/app/services/PriceTypePrintService',
   ];
 }
 
@@ -191,10 +221,6 @@ class MoySkladPrintRpcClient {
     }
 
     this.runtimeConfigResolved = true;
-
-    if (!resolved) {
-      throw new Error(`${PRINT_PROTOCOL_ERROR} Не удалось определить текущую версию приложения МойСклад; всё ещё найден fallback ${this.rpcVersion}. Нажмите "Войти в МойСклад" и повторите экспорт.`);
-    }
   }
 
   async postOnce(path, payload) {
@@ -260,8 +286,8 @@ class MoySkladPrintRpcClient {
   }
 
   async getEmissionOrderTemplates() {
-    const text = await this.post(
-      () => `/app/services/${this.rpcVersion}/MxTemplateService`,
+    const text = await this.postAny(
+      () => buildTemplateServicePaths(this.rpcVersion),
       () => buildTemplatePayload(this.moduleBase),
     );
     const template = parseTemplateMetadata(text, this.templateName);
@@ -297,8 +323,8 @@ class MoySkladPrintRpcClient {
   async pollPrintTask(taskId) {
     const started = Date.now();
     while (Date.now() - started < this.taskTimeoutMs) {
-      const text = await this.post(
-        () => `/app/services/${this.rpcVersion}/ExportImportService`,
+      const text = await this.postAny(
+        () => buildTaskServicePaths(this.rpcVersion),
         () => buildTaskPayload(taskId, this.moduleBase),
       );
       const downloadUrl = extractPdfUrl(text);
@@ -337,6 +363,8 @@ module.exports = {
   PRINT_PROTOCOL_ERROR,
   buildRequestDocumentPayload,
   buildPrintServicePaths,
+  buildTaskServicePaths,
+  buildTemplateServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,

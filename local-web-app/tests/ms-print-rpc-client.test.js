@@ -4,6 +4,8 @@ const {
   DEFAULT_MODULE_BASE,
   buildRequestDocumentPayload,
   buildPrintServicePaths,
+  buildTaskServicePaths,
+  buildTemplateServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,
@@ -40,6 +42,11 @@ test('extractModuleBase reads current MoySklad app build URL', () => {
     extractModuleBase('<script src="/app/cdn/r1778/app.nocache.js"></script>'),
     'https://online.moysklad.ru/app/cdn/r1778/',
   );
+  assert.equal(
+    extractModuleBase('https://cdn-static.moysklad.ru/app/assets/r1779/main.js'),
+    'https://cdn-static.moysklad.ru/app/assets/r1779/',
+  );
+  assert.equal(extractModuleBase('window.build="r1780"'), 'https://online.moysklad.ru/app/cdn/r1780/');
 });
 
 test('parseRuntimeConfigFromHtml reads RPC version and nocache script URL', () => {
@@ -71,6 +78,23 @@ test('buildPrintServicePaths includes old print servlet and current service serv
   assert.deepEqual(buildPrintServicePaths('r1777'), [
     '/app/services/print/r1777/PriceTypePrintService',
     '/app/services/r1777/PriceTypePrintService',
+    '/app/services/print/PriceTypePrintService',
+    '/app/services/PriceTypePrintService',
+  ]);
+});
+
+test('template and task service paths include versioned and unversioned candidates', () => {
+  assert.deepEqual(buildTemplateServicePaths('r1777'), [
+    '/app/services/r1777/MxTemplateService',
+    '/app/services/MxTemplateService',
+    '/app/services/print/r1777/MxTemplateService',
+    '/app/services/print/MxTemplateService',
+  ]);
+  assert.deepEqual(buildTaskServicePaths('r1777'), [
+    '/app/services/r1777/ExportImportService',
+    '/app/services/ExportImportService',
+    '/app/services/print/r1777/ExportImportService',
+    '/app/services/print/ExportImportService',
   ]);
 });
 
