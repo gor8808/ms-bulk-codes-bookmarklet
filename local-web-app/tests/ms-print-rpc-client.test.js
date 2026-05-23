@@ -5,8 +5,11 @@ const {
   buildRequestDocumentPayload,
   buildTaskPayload,
   buildTemplatePayload,
+  extractGwtPermutation,
+  extractModuleBase,
   extractAsyncTaskId,
   extractPdfUrl,
+  parseRuntimeConfigFromHtml,
   parseTemplateMetadata,
   responseContainsTemplate,
 } = require('../server/lib/ms-print-rpc-client');
@@ -25,6 +28,30 @@ test('extractPdfUrl reads temporary print-prod PDF URL', () => {
 test('responseContainsTemplate checks target template name', () => {
   assert.equal(responseContainsTemplate('Код маркировки и ШК.xml'), true);
   assert.equal(responseContainsTemplate('Другой шаблон'), false);
+});
+
+test('extractModuleBase reads current MoySklad app build URL', () => {
+  assert.equal(
+    extractModuleBase('<script src="https://cdn-static.moysklad.ru/app/cdn/r1777/app.nocache.js"></script>'),
+    'https://cdn-static.moysklad.ru/app/cdn/r1777/',
+  );
+  assert.equal(
+    extractModuleBase('<script src="/app/cdn/r1778/app.nocache.js"></script>'),
+    'https://online.moysklad.ru/app/cdn/r1778/',
+  );
+});
+
+test('parseRuntimeConfigFromHtml reads RPC version and nocache script URL', () => {
+  assert.deepEqual(parseRuntimeConfigFromHtml('<script src="https://cdn-static.moysklad.ru/app/cdn/r1777/app.nocache.js"></script>'), {
+    moduleBase: 'https://cdn-static.moysklad.ru/app/cdn/r1777/',
+    rpcVersion: 'r1777',
+    nocacheScriptUrl: 'https://cdn-static.moysklad.ru/app/cdn/r1777/app.nocache.js',
+  });
+});
+
+test('extractGwtPermutation reads first GWT permutation strong name', () => {
+  assert.equal(extractGwtPermutation('x 0123456789ABCDEF0123456789ABCDEF y'), '0123456789ABCDEF0123456789ABCDEF');
+  assert.equal(extractGwtPermutation('no permutation'), '');
 });
 
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {

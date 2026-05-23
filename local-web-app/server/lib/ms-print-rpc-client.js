@@ -5,6 +5,58 @@ const DEFAULT_PERMUTATION = '65DD15C4D67E019A7A66BAD8ED43273D';
 const DEFAULT_REF_ID = '0fecd212-1864-11ec-0a80-0865003ffa33';
 const PRINT_PROTOCOL_ERROR = 'Протокол печати МойСклад изменился. Требуется обновление интеграции.';
 
+function firstMatch(text, regex) {
+  const match = String(text || '').match(regex);
+  return match ? match[1] : '';
+}
+
+function normalizeModuleBase(value) {
+  if (!value) {
+    return '';
+  }
+  return String(value).endsWith('/') ? String(value) : `${value}/`;
+}
+
+function extractRpcVersionFromModuleBase(moduleBase) {
+  return firstMatch(moduleBase, /\/cdn\/(r\d+)\//i);
+}
+
+function extractModuleBase(text) {
+  const source = String(text || '');
+  const absolute = firstMatch(source, /(https:\/\/cdn-static\.moysklad\.ru\/app\/cdn\/r\d+\/)/i);
+  if (absolute) {
+    return normalizeModuleBase(absolute);
+  }
+
+  const relative = source.match(/["']((?:https?:\/\/online\.moysklad\.ru)?\/app\/cdn\/r\d+\/)["']/i);
+  if (relative) {
+    return normalizeModuleBase(new URL(relative[1], ONLINE_BASE).href);
+  }
+
+  const version = firstMatch(source, /\/app\/(?:cdn\/)?(r\d+)\//i);
+  return version ? `${ONLINE_BASE}/app/cdn/${version}/` : '';
+}
+
+function extractNocacheScriptUrl(text) {
+  const source = String(text || '');
+  const match = source.match(/<script[^>]+src=["']([^"']*\.nocache\.js[^"']*)["']/i);
+  return match ? new URL(match[1], `${ONLINE_BASE}/app/`).href : '';
+}
+
+function extractGwtPermutation(text) {
+  const values = Array.from(new Set(String(text || '').match(/\b[A-F0-9]{32}\b/g) || []));
+  return values[0] || '';
+}
+
+function parseRuntimeConfigFromHtml(html) {
+  const moduleBase = extractModuleBase(html);
+  return {
+    moduleBase,
+    rpcVersion: extractRpcVersionFromModuleBase(moduleBase),
+    nocacheScriptUrl: extractNocacheScriptUrl(html),
+  };
+}
+
 function extractAsyncTaskId(text) {
   const match = String(text || '').match(/ASYNC:([0-9a-f-]+)/i);
   return match ? match[1] : '';
@@ -78,9 +130,47 @@ class MoySkladPrintRpcClient {
     this.templateName = options.templateName || 'Код маркировки и ШК';
     this.taskTimeoutMs = options.taskTimeoutMs || 120000;
     this.template = null;
+    this.runtimeConfigResolved = Boolean(options.skipRuntimeDiscovery);
   }
 
-  async post(path, payload) {
+  async resolveRuntimeConfig(force = false) {
+    if (this.runtimeConfigResolved && !force) {
+      return;
+    }
+
+    const request = await this.browserSession.getRequestContext();
+    const response = await request.get(`${ONLINE_BASE}/app/`);
+    if (!response.ok()) {
+      this.runtimeConfigResolved = true;
+      return;
+    }
+
+    const html = await response.text();
+    const runtime = parseRuntimeConfigFromHtml(html);
+    if (runtime.moduleBase && runtime.rpcVersion) {
+      this.moduleBase = runtime.moduleBase;
+      this.rpcVersion = runtime.rpcVersion;
+      this.template = null;
+    }
+
+    if (runtime.nocacheScriptUrl) {
+      try {
+        const scriptResponse = await request.get(runtime.nocacheScriptUrl);
+        if (scriptResponse.ok()) {
+          const permutation = extractGwtPermutation(await scriptResponse.text());
+          if (permutation) {
+            this.permutation = permutation;
+          }
+        }
+      } catch (_) {
+        // The old permutation is still a better fallback than failing before the RPC call.
+      }
+    }
+
+    this.runtimeConfigResolved = true;
+  }
+
+  async postOnce(path, payload) {
     const request = await this.browserSession.getRequestContext();
     const response = await request.post(`${ONLINE_BASE}${path}`, {
       headers: {
@@ -93,15 +183,31 @@ class MoySkladPrintRpcClient {
     });
     const text = await response.text();
     if (!response.ok()) {
-      throw new Error(`${PRINT_PROTOCOL_ERROR} HTTP ${response.status()}: ${text.slice(0, 200)}`);
+      const error = new Error(`${PRINT_PROTOCOL_ERROR} HTTP ${response.status()}: ${text.slice(0, 200)}`);
+      error.status = response.status();
+      throw error;
     }
     return text;
   }
 
+  async post(pathFactory, payloadFactory) {
+    await this.resolveRuntimeConfig();
+
+    try {
+      return await this.postOnce(pathFactory(), payloadFactory());
+    } catch (error) {
+      if (error && error.status === 405) {
+        await this.resolveRuntimeConfig(true);
+        return this.postOnce(pathFactory(), payloadFactory());
+      }
+      throw error;
+    }
+  }
+
   async getEmissionOrderTemplates() {
     const text = await this.post(
-      `/app/services/${this.rpcVersion}/MxTemplateService`,
-      buildTemplatePayload(this.moduleBase),
+      () => `/app/services/${this.rpcVersion}/MxTemplateService`,
+      () => buildTemplatePayload(this.moduleBase),
     );
     const template = parseTemplateMetadata(text, this.templateName);
     if (!template) {
@@ -116,8 +222,8 @@ class MoySkladPrintRpcClient {
       await this.getEmissionOrderTemplates();
     }
     const text = await this.post(
-      `/app/services/print/${this.rpcVersion}/PriceTypePrintService`,
-      buildRequestDocumentPayload({
+      () => `/app/services/print/${this.rpcVersion}/PriceTypePrintService`,
+      () => buildRequestDocumentPayload({
         documentId,
         positionId,
         quantity,
@@ -137,8 +243,8 @@ class MoySkladPrintRpcClient {
     const started = Date.now();
     while (Date.now() - started < this.taskTimeoutMs) {
       const text = await this.post(
-        `/app/services/${this.rpcVersion}/ExportImportService`,
-        buildTaskPayload(taskId, this.moduleBase),
+        () => `/app/services/${this.rpcVersion}/ExportImportService`,
+        () => buildTaskPayload(taskId, this.moduleBase),
       );
       const downloadUrl = extractPdfUrl(text);
       if (downloadUrl) {
@@ -177,9 +283,12 @@ module.exports = {
   buildRequestDocumentPayload,
   buildTaskPayload,
   buildTemplatePayload,
+  extractGwtPermutation,
+  extractModuleBase,
   extractAsyncTaskId,
   extractGwtStrings,
   extractPdfUrl,
+  parseRuntimeConfigFromHtml,
   parseTemplateMetadata,
   responseContainsTemplate,
 };
