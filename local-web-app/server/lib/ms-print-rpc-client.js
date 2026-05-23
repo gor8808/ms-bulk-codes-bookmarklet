@@ -79,6 +79,13 @@ function buildTaskPayload(taskId, moduleBase = DEFAULT_MODULE_BASE) {
   return `7|0|7|${moduleBase}|B01E8C8D1D04DD6BB1F78BC90694438F|com.lognex.sklad.face.common.client.module.exportimport.ExportImportService|getTask|com.lognex.type.ID/131549306|java.util.UUID/2940008275|${taskId}|1|2|3|4|1|5|5|6|7|`;
 }
 
+function buildPrintServicePaths(rpcVersion) {
+  return [
+    `/app/services/print/${rpcVersion}/PriceTypePrintService`,
+    `/app/services/${rpcVersion}/PriceTypePrintService`,
+  ];
+}
+
 function extractGwtStrings(text) {
   return Array.from(String(text || '').matchAll(/"((?:\\.|[^"\\])*)"/g), (match) => {
     try {
@@ -183,8 +190,9 @@ class MoySkladPrintRpcClient {
     });
     const text = await response.text();
     if (!response.ok()) {
-      const error = new Error(`${PRINT_PROTOCOL_ERROR} HTTP ${response.status()}: ${text.slice(0, 200)}`);
+      const error = new Error(`${PRINT_PROTOCOL_ERROR} ${path} HTTP ${response.status()}: ${text.slice(0, 200)}`);
       error.status = response.status();
+      error.path = path;
       throw error;
     }
     return text;
@@ -204,6 +212,33 @@ class MoySkladPrintRpcClient {
     }
   }
 
+  async postAny(pathFactory, payloadFactory) {
+    await this.resolveRuntimeConfig();
+    let lastError = null;
+
+    for (let refreshAttempt = 0; refreshAttempt < 2; refreshAttempt += 1) {
+      const paths = pathFactory();
+      const payload = payloadFactory();
+
+      for (const path of paths) {
+        try {
+          return await this.postOnce(path, payload);
+        } catch (error) {
+          lastError = error;
+          if (!error || error.status !== 405) {
+            throw error;
+          }
+        }
+      }
+
+      if (refreshAttempt === 0) {
+        await this.resolveRuntimeConfig(true);
+      }
+    }
+
+    throw lastError;
+  }
+
   async getEmissionOrderTemplates() {
     const text = await this.post(
       () => `/app/services/${this.rpcVersion}/MxTemplateService`,
@@ -221,8 +256,8 @@ class MoySkladPrintRpcClient {
     if (!this.template) {
       await this.getEmissionOrderTemplates();
     }
-    const text = await this.post(
-      () => `/app/services/print/${this.rpcVersion}/PriceTypePrintService`,
+    const text = await this.postAny(
+      () => buildPrintServicePaths(this.rpcVersion),
       () => buildRequestDocumentPayload({
         documentId,
         positionId,
@@ -281,6 +316,7 @@ module.exports = {
   DEFAULT_REF_ID,
   PRINT_PROTOCOL_ERROR,
   buildRequestDocumentPayload,
+  buildPrintServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,

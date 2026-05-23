@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_MODULE_BASE,
   buildRequestDocumentPayload,
+  buildPrintServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,
@@ -64,6 +65,13 @@ test('buildTaskPayload matches MoySklad GWT-RPC task polling shape', () => {
   const payload = buildTaskPayload('203b5527-51f4-11f1-0a80-056b0002e0f2');
   assert.equal(payload.includes('ExportImportService|getTask|'), true);
   assert.equal(payload.includes('|203b5527-51f4-11f1-0a80-056b0002e0f2|'), true);
+});
+
+test('buildPrintServicePaths includes old print servlet and current service servlet candidates', () => {
+  assert.deepEqual(buildPrintServicePaths('r1777'), [
+    '/app/services/print/r1777/PriceTypePrintService',
+    '/app/services/r1777/PriceTypePrintService',
+  ]);
 });
 
 test('parseTemplateMetadata extracts template values from GWT-RPC response string table', () => {
