@@ -98,6 +98,52 @@ class BrowserSessionService {
     return this.context.request;
   }
 
+  async getAppRuntimeText() {
+    return this.withLock(() => this.getAppRuntimeTextUnlocked());
+  }
+
+  async getAppRuntimeTextUnlocked() {
+    await this.launchUnlocked({ headless: true });
+    if (!await this.isLoggedInUnlocked()) {
+      throw new Error('Войдите в МойСклад через кнопку "Войти в МойСклад".');
+    }
+
+    this.page = this.page || await this.context.newPage();
+    await this.page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
+    try {
+      await this.page.waitForLoadState('networkidle', { timeout: 10000 });
+    } catch (_) {
+      // The app may keep long-polling; collect whatever runtime resources are already visible.
+    }
+
+    return this.page.evaluate(() => {
+      const values = [];
+      const push = (value) => {
+        if (value) {
+          values.push(String(value));
+        }
+      };
+
+      for (const script of Array.from(document.scripts || [])) {
+        push(script.src);
+      }
+
+      if (window.performance && typeof window.performance.getEntriesByType === 'function') {
+        for (const entry of window.performance.getEntriesByType('resource')) {
+          push(entry.name);
+        }
+      }
+
+      const modules = window.__gwt_activeModules || {};
+      for (const module of Object.values(modules)) {
+        push(module && module.moduleBase);
+        push(module && module.nocache);
+      }
+
+      return values.join('\n');
+    });
+  }
+
   async close() {
     return this.withLock(() => this.closeUnlocked());
   }

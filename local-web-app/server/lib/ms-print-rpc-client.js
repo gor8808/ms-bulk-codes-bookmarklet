@@ -57,6 +57,20 @@ function parseRuntimeConfigFromHtml(html) {
   };
 }
 
+function applyRuntimeConfig(client, runtime) {
+  if (!runtime || !runtime.moduleBase || !runtime.rpcVersion) {
+    return false;
+  }
+
+  const changed = client.moduleBase !== runtime.moduleBase || client.rpcVersion !== runtime.rpcVersion;
+  client.moduleBase = runtime.moduleBase;
+  client.rpcVersion = runtime.rpcVersion;
+  if (changed) {
+    client.template = null;
+  }
+  return true;
+}
+
 function extractAsyncTaskId(text) {
   const match = String(text || '').match(/ASYNC:([0-9a-f-]+)/i);
   return match ? match[1] : '';
@@ -147,17 +161,19 @@ class MoySkladPrintRpcClient {
 
     const request = await this.browserSession.getRequestContext();
     const response = await request.get(`${ONLINE_BASE}/app/`);
-    if (!response.ok()) {
-      this.runtimeConfigResolved = true;
-      return;
+    let runtime = {};
+    if (response.ok()) {
+      runtime = parseRuntimeConfigFromHtml(await response.text());
     }
+    let resolved = applyRuntimeConfig(this, runtime);
 
-    const html = await response.text();
-    const runtime = parseRuntimeConfigFromHtml(html);
-    if (runtime.moduleBase && runtime.rpcVersion) {
-      this.moduleBase = runtime.moduleBase;
-      this.rpcVersion = runtime.rpcVersion;
-      this.template = null;
+    if (!resolved && typeof this.browserSession.getAppRuntimeText === 'function') {
+      const appRuntimeText = await this.browserSession.getAppRuntimeText();
+      const appRuntime = parseRuntimeConfigFromHtml(appRuntimeText);
+      resolved = applyRuntimeConfig(this, appRuntime);
+      if (resolved && appRuntime.nocacheScriptUrl) {
+        runtime.nocacheScriptUrl = appRuntime.nocacheScriptUrl;
+      }
     }
 
     if (runtime.nocacheScriptUrl) {
@@ -175,6 +191,10 @@ class MoySkladPrintRpcClient {
     }
 
     this.runtimeConfigResolved = true;
+
+    if (!resolved) {
+      throw new Error(`${PRINT_PROTOCOL_ERROR} Не удалось определить текущую версию приложения МойСклад; всё ещё найден fallback ${this.rpcVersion}. Нажмите "Войти в МойСклад" и повторите экспорт.`);
+    }
   }
 
   async postOnce(path, payload) {
