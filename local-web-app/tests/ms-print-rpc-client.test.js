@@ -132,8 +132,10 @@ test('buildRequestDocumentPayload substitutes document, position, quantity, and 
   });
 
   assert.equal(payload.includes('PriceTypePrintService|requestDocument|'), true);
+  assert.equal(payload.includes('com.lognex.api.base.gwt.client.common.Type/1193462921'), true);
   assert.equal(payload.includes('|39732d8d-5124-11f1-0a80-1385001c4e14|'), true);
   assert.equal(payload.includes('|fe298f4d-5124-11f1-0a80-188a001c572d|'), true);
   assert.equal(payload.includes('|Код маркировки и ШК.xml|Template|admin@example.com|token-1|Код маркировки и ШК|'), true);
+  assert.equal(payload.includes('|7|126|8|3|'), true);
   assert.equal(payload.includes('|0|45|11|'), true);
 });
