@@ -197,12 +197,15 @@ class MoySkladPrintRpcClient {
     }
     let resolved = applyRuntimeConfig(this, runtime);
 
-    if (!resolved && typeof this.browserSession.getAppRuntimeText === 'function') {
-      const appRuntimeText = await this.browserSession.getAppRuntimeText();
-      const appRuntime = parseRuntimeConfigFromHtml(appRuntimeText);
-      resolved = applyRuntimeConfig(this, appRuntime);
-      if (resolved && appRuntime.nocacheScriptUrl) {
-        runtime.nocacheScriptUrl = appRuntime.nocacheScriptUrl;
+    if (!resolved && typeof this.browserSession.discoverGwtParams === 'function') {
+      const params = await this.browserSession.discoverGwtParams();
+      if (params && params.rpcVersion && params.moduleBase) {
+        this.rpcVersion = params.rpcVersion;
+        this.moduleBase = params.moduleBase;
+        if (params.permutation) this.permutation = params.permutation;
+        this.template = null;
+        resolved = true;
+        runtime = {};
       }
     }
 

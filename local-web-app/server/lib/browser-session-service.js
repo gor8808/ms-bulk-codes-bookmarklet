@@ -98,49 +98,46 @@ class BrowserSessionService {
     return this.context.request;
   }
 
-  async getAppRuntimeText() {
-    return this.withLock(() => this.getAppRuntimeTextUnlocked());
+  async discoverGwtParams() {
+    return this.withLock(() => this.discoverGwtParamsUnlocked());
   }
 
-  async getAppRuntimeTextUnlocked() {
+  async discoverGwtParamsUnlocked() {
     await this.launchUnlocked({ headless: true });
     if (!await this.isLoggedInUnlocked()) {
-      throw new Error('Войдите в МойСклад через кнопку "Войти в МойСклад".');
+      return null;
     }
 
     this.page = this.page || await this.context.newPage();
-    await this.page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
-    try {
-      await this.page.waitForLoadState('networkidle', { timeout: 10000 });
-    } catch (_) {
-      // The app may keep long-polling; collect whatever runtime resources are already visible.
-    }
 
-    return this.page.evaluate(() => {
-      const values = [];
-      const push = (value) => {
-        if (value) {
-          values.push(String(value));
-        }
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (this.context) this.context.off('request', onRequest);
+        resolve(result);
       };
 
-      for (const script of Array.from(document.scripts || [])) {
-        push(script.src);
-      }
+      // Capture any GWT-RPC request header — X-GWT-Module-Base contains the version.
+      const onRequest = (request) => {
+        const headers = request.headers();
+        const moduleBase = headers['x-gwt-module-base'];
+        if (!moduleBase) return;
+        const versionMatch = moduleBase.match(/\/(r\d+)\//i);
+        if (!versionMatch) return;
+        finish({
+          rpcVersion: versionMatch[1],
+          moduleBase: moduleBase.endsWith('/') ? moduleBase : `${moduleBase}/`,
+          permutation: headers['x-gwt-permutation'] || '',
+        });
+      };
 
-      if (window.performance && typeof window.performance.getEntriesByType === 'function') {
-        for (const entry of window.performance.getEntriesByType('resource')) {
-          push(entry.name);
-        }
-      }
-
-      const modules = window.__gwt_activeModules || {};
-      for (const module of Object.values(modules)) {
-        push(module && module.moduleBase);
-        push(module && module.nocache);
-      }
-
-      return values.join('\n');
+      const timer = setTimeout(() => finish(null), 25000);
+      this.context.on('request', onRequest);
+      this.page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
     });
   }
 
