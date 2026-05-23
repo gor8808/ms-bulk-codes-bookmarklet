@@ -96,82 +96,30 @@ function responseContainsTemplate(text, templateName = 'Код маркиров�
   return String(text || '').includes(templateName);
 }
 
-function buildTemplatePayload(moduleBase = DEFAULT_MODULE_BASE) {
-  return `7|0|6|${moduleBase}|C552A96838172DB5F7717A1B2EC74FD0|com.lognex.sklad.face.common.client.print.TemplateService|getTemplate|java.lang.String/2004016611|EmissionOrder|1|2|3|4|1|5|6|`;
+function buildTemplatePayload(moduleBase = DEFAULT_MODULE_BASE, permutation = DEFAULT_PERMUTATION) {
+  return `7|0|6|${moduleBase}|${permutation}|com.lognex.sklad.face.common.client.print.TemplateService|getTemplate|java.lang.String/2004016611|EmissionOrder|1|2|3|4|1|5|6|`;
 }
 
-function buildTaskPayload(taskId, moduleBase = DEFAULT_MODULE_BASE) {
-  return `7|0|7|${moduleBase}|B01E8C8D1D04DD6BB1F78BC90694438F|com.lognex.sklad.face.common.client.module.exportimport.ExportImportService|getTask|com.lognex.type.ID/131549306|java.util.UUID/2940008275|${taskId}|1|2|3|4|1|5|5|6|7|`;
+function buildTaskPayload(taskId, moduleBase = DEFAULT_MODULE_BASE, permutation = DEFAULT_PERMUTATION) {
+  return `7|0|7|${moduleBase}|${permutation}|com.lognex.sklad.face.common.client.module.exportimport.ExportImportService|getTask|com.lognex.type.ID/131549306|java.util.UUID/2940008275|${taskId}|1|2|3|4|1|5|5|6|7|`;
 }
 
 function buildTemplateServicePaths(rpcVersion) {
   return [
     `/app/services/${rpcVersion}/MxTemplateService`,
-    `/app/services/${rpcVersion}/TemplateService`,
-    '/app/services/MxTemplateService',
-    '/app/services/TemplateService',
-    `/app/services/print/${rpcVersion}/MxTemplateService`,
-    `/app/services/print/${rpcVersion}/TemplateService`,
-    `/app/services/${rpcVersion}/print/MxTemplateService`,
-    `/app/services/${rpcVersion}/print/TemplateService`,
-    '/app/services/print/MxTemplateService',
-    '/app/services/print/TemplateService',
   ];
 }
 
 function buildTaskServicePaths(rpcVersion) {
   return [
     `/app/services/${rpcVersion}/ExportImportService`,
-    '/app/services/ExportImportService',
-    `/app/services/print/${rpcVersion}/ExportImportService`,
-    `/app/services/${rpcVersion}/print/ExportImportService`,
-    '/app/services/print/ExportImportService',
   ];
 }
 
 function buildPrintServicePaths(rpcVersion) {
   return [
     `/app/services/print/${rpcVersion}/PriceTypePrintService`,
-    `/app/services/${rpcVersion}/PriceTypePrintService`,
-    `/app/services/${rpcVersion}/print/PriceTypePrintService`,
-    '/app/services/print/PriceTypePrintService',
-    '/app/services/PriceTypePrintService',
   ];
-}
-
-function normalizeServicePath(value) {
-  if (!value) {
-    return '';
-  }
-  const url = String(value).replace(/\\\//g, '/');
-  if (/^https?:\/\//i.test(url)) {
-    const parsed = new URL(url);
-    return `${parsed.pathname}${parsed.search || ''}`;
-  }
-  return url.startsWith('/') ? url : `/${url}`;
-}
-
-function extractServicePathsFromBundle(text, serviceNames) {
-  const source = String(text || '').replace(/\\\//g, '/');
-  const names = Array.isArray(serviceNames) ? serviceNames : [serviceNames];
-  const paths = [];
-
-  for (const name of names) {
-    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const patterns = [
-      new RegExp(`https?://[^"'\\s]+/app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
-      new RegExp(`/app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
-      new RegExp(`app/services[^"'\\s]*${escaped}[^"'\\s]*`, 'gi'),
-    ];
-
-    for (const pattern of patterns) {
-      for (const match of source.matchAll(pattern)) {
-        paths.push(normalizeServicePath(match[0]));
-      }
-    }
-  }
-
-  return Array.from(new Set(paths));
 }
 
 function extractGwtStrings(text) {
@@ -209,10 +157,11 @@ function buildRequestDocumentPayload({
   quantity,
   template,
   moduleBase = DEFAULT_MODULE_BASE,
+  permutation = DEFAULT_PERMUTATION,
   refId = DEFAULT_REF_ID,
 }) {
   const safeQuantity = Math.max(1, Math.trunc(Number(quantity) || 1));
-  return `7|0|40|${moduleBase}|A405BC6EB6B36D4D5A38682DAAA9511E|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.api.base.gwt.client.to.DocumentTO/2469114615|com.lognex.type.ID/131549306|com.lognex.api.base.gwt.client.common.Type/1806655303|com.lognex.api.base.gwt.client.to.DocumentFormat/1520872499|com.lognex.api.base.gwt.client.to.IRefTO|I|com.lognex.api.base.gwt.client.print.PriceQuantitySource/1730076791|java.lang.Integer/3438268394|com.lognex.api.base.gwt.client.to.TemplateType/4288425977|java.util.Set|[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;/2096942280|com.lognex.api.base.gwt.client.filter.ClientSortCriteria/2929609327|java.util.Date/3385151746|${template.fileName}|${template.templateType}|${template.ownerLogin}|${template.templateToken}|${template.templateName}|java.util.UUID/2940008275|${template.accountId}|com.lognex.api.base.gwt.client.change.DirtyTracker/1761046355||${template.templateId}|${documentId}|com.lognex.api.base.gwt.client.to.RefTO/3246906117|${refId}|java.util.HashSet/3273092938|${positionId}|com.lognex.api.base.gwt.client.filter.ImmutableBooleanFilter/599997023|com.lognex.api.base.gwt.client.filter2.PumpFilterDesc/304620322|testPrintFilter|[Lcom.lognex.api.base.gwt.client.filter.PumpFilterParameter;/204125189|com.lognex.api.base.gwt.client.filter.PumpFilterParameterBoolean/3862516349|java.lang.Boolean/476441737|value|printAllCodesFilter|1|2|3|4|13|5|6|7|8|9|10|11|9|12|13|14|15|16|5|17|ZxQxboj|0|1|18|12|4|19|BiB|20|0|0|21|22|23|24|0|25|0|0|26|6|23|27|1|1|0|26|0|0|17|ZxQxboj|26|A|6|23|28|7|125|8|3|29|0|26|25|0|0|26|0|${safeQuantity}|11|0|29|0|0|25|1|6|23|30|0|0|12|1|13|3|31|1|6|23|32|15|2|33|0|34|0|0|0|35|36|1|37|38|0|39|0|-28|33|0|34|0|0|0|40|36|1|37|38|1|39|0|-33|0|`;
+  return `7|0|40|${moduleBase}|${permutation}|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.api.base.gwt.client.to.DocumentTO/2469114615|com.lognex.type.ID/131549306|com.lognex.api.base.gwt.client.common.Type/1806655303|com.lognex.api.base.gwt.client.to.DocumentFormat/1520872499|com.lognex.api.base.gwt.client.to.IRefTO|I|com.lognex.api.base.gwt.client.print.PriceQuantitySource/1730076791|java.lang.Integer/3438268394|com.lognex.api.base.gwt.client.to.TemplateType/4288425977|java.util.Set|[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;/2096942280|com.lognex.api.base.gwt.client.filter.ClientSortCriteria/2929609327|java.util.Date/3385151746|${template.fileName}|${template.templateType}|${template.ownerLogin}|${template.templateToken}|${template.templateName}|java.util.UUID/2940008275|${template.accountId}|com.lognex.api.base.gwt.client.change.DirtyTracker/1761046355||${template.templateId}|${documentId}|com.lognex.api.base.gwt.client.to.RefTO/3246906117|${refId}|java.util.HashSet/3273092938|${positionId}|com.lognex.api.base.gwt.client.filter.ImmutableBooleanFilter/599997023|com.lognex.api.base.gwt.client.filter2.PumpFilterDesc/304620322|testPrintFilter|[Lcom.lognex.api.base.gwt.client.filter.PumpFilterParameter;/204125189|com.lognex.api.base.gwt.client.filter.PumpFilterParameterBoolean/3862516349|java.lang.Boolean/476441737|value|printAllCodesFilter|1|2|3|4|13|5|6|7|8|9|10|11|9|12|13|14|15|16|5|17|ZxQxboj|0|1|18|12|4|19|BiB|20|0|0|21|22|23|24|0|25|0|0|26|6|23|27|1|1|0|26|0|0|17|ZxQxboj|26|A|6|23|28|7|125|8|3|29|0|26|25|0|0|26|0|${safeQuantity}|11|0|29|0|0|25|1|6|23|30|0|0|12|1|13|3|31|1|6|23|32|15|2|33|0|34|0|0|0|35|36|1|37|38|0|39|0|-28|33|0|34|0|0|0|40|36|1|37|38|1|39|0|-33|0|`;
 }
 
 class MoySkladPrintRpcClient {
@@ -226,9 +175,6 @@ class MoySkladPrintRpcClient {
     this.taskTimeoutMs = options.taskTimeoutMs || 120000;
     this.template = null;
     this.runtimeConfigResolved = Boolean(options.skipRuntimeDiscovery);
-    this.discoveredTemplatePaths = [];
-    this.discoveredPrintPaths = [];
-    this.discoveredTaskPaths = [];
   }
 
   async resolveRuntimeConfig(force = false) {
@@ -267,20 +213,6 @@ class MoySkladPrintRpcClient {
         }
       } catch (_) {
         // The old permutation is still a better fallback than failing before the RPC call.
-      }
-    }
-
-    if (this.permutation && this.moduleBase) {
-      try {
-        const bundleResponse = await request.get(`${this.moduleBase}${this.permutation}.cache.js`);
-        if (bundleResponse.ok()) {
-          const bundle = await bundleResponse.text();
-          this.discoveredTemplatePaths = extractServicePathsFromBundle(bundle, ['MxTemplateService', 'TemplateService']);
-          this.discoveredPrintPaths = extractServicePathsFromBundle(bundle, 'PriceTypePrintService');
-          this.discoveredTaskPaths = extractServicePathsFromBundle(bundle, 'ExportImportService');
-        }
-      } catch (_) {
-        // Fallback candidates below still provide a clear protocol error.
       }
     }
 
@@ -362,8 +294,8 @@ class MoySkladPrintRpcClient {
 
   async getEmissionOrderTemplates() {
     const text = await this.postAny(
-      () => [...this.discoveredTemplatePaths, ...buildTemplateServicePaths(this.rpcVersion)],
-      () => buildTemplatePayload(this.moduleBase),
+      () => buildTemplateServicePaths(this.rpcVersion),
+      () => buildTemplatePayload(this.moduleBase, this.permutation),
     );
     const template = parseTemplateMetadata(text, this.templateName);
     if (!template) {
@@ -378,13 +310,14 @@ class MoySkladPrintRpcClient {
       await this.getEmissionOrderTemplates();
     }
     const text = await this.postAny(
-      () => [...this.discoveredPrintPaths, ...buildPrintServicePaths(this.rpcVersion)],
+      () => buildPrintServicePaths(this.rpcVersion),
       () => buildRequestDocumentPayload({
         documentId,
         positionId,
         quantity,
         template: this.template,
         moduleBase: this.moduleBase,
+        permutation: this.permutation,
         refId: this.refId,
       }),
     );
@@ -399,8 +332,8 @@ class MoySkladPrintRpcClient {
     const started = Date.now();
     while (Date.now() - started < this.taskTimeoutMs) {
       const text = await this.postAny(
-        () => [...this.discoveredTaskPaths, ...buildTaskServicePaths(this.rpcVersion)],
-        () => buildTaskPayload(taskId, this.moduleBase),
+        () => buildTaskServicePaths(this.rpcVersion),
+        () => buildTaskPayload(taskId, this.moduleBase, this.permutation),
       );
       const downloadUrl = extractPdfUrl(text);
       if (downloadUrl) {
@@ -442,7 +375,6 @@ module.exports = {
   buildTemplateServicePaths,
   buildTaskPayload,
   buildTemplatePayload,
-  extractServicePathsFromBundle,
   extractGwtPermutation,
   extractModuleBase,
   extractAsyncTaskId,
