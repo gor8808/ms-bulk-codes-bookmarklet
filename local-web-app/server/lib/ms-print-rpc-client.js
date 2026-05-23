@@ -106,9 +106,15 @@ function buildTaskPayload(taskId, moduleBase = DEFAULT_MODULE_BASE) {
 function buildTemplateServicePaths(rpcVersion) {
   return [
     `/app/services/${rpcVersion}/MxTemplateService`,
+    `/app/services/${rpcVersion}/TemplateService`,
     '/app/services/MxTemplateService',
+    '/app/services/TemplateService',
     `/app/services/print/${rpcVersion}/MxTemplateService`,
+    `/app/services/print/${rpcVersion}/TemplateService`,
+    `/app/services/${rpcVersion}/print/MxTemplateService`,
+    `/app/services/${rpcVersion}/print/TemplateService`,
     '/app/services/print/MxTemplateService',
+    '/app/services/print/TemplateService',
   ];
 }
 
@@ -117,6 +123,7 @@ function buildTaskServicePaths(rpcVersion) {
     `/app/services/${rpcVersion}/ExportImportService`,
     '/app/services/ExportImportService',
     `/app/services/print/${rpcVersion}/ExportImportService`,
+    `/app/services/${rpcVersion}/print/ExportImportService`,
     '/app/services/print/ExportImportService',
   ];
 }
@@ -125,6 +132,7 @@ function buildPrintServicePaths(rpcVersion) {
   return [
     `/app/services/print/${rpcVersion}/PriceTypePrintService`,
     `/app/services/${rpcVersion}/PriceTypePrintService`,
+    `/app/services/${rpcVersion}/print/PriceTypePrintService`,
     '/app/services/print/PriceTypePrintService',
     '/app/services/PriceTypePrintService',
   ];

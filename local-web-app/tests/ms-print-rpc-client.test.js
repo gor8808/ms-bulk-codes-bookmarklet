@@ -78,6 +78,7 @@ test('buildPrintServicePaths includes old print servlet and current service serv
   assert.deepEqual(buildPrintServicePaths('r1777'), [
     '/app/services/print/r1777/PriceTypePrintService',
     '/app/services/r1777/PriceTypePrintService',
+    '/app/services/r1777/print/PriceTypePrintService',
     '/app/services/print/PriceTypePrintService',
     '/app/services/PriceTypePrintService',
   ]);
@@ -86,14 +87,21 @@ test('buildPrintServicePaths includes old print servlet and current service serv
 test('template and task service paths include versioned and unversioned candidates', () => {
   assert.deepEqual(buildTemplateServicePaths('r1777'), [
     '/app/services/r1777/MxTemplateService',
+    '/app/services/r1777/TemplateService',
     '/app/services/MxTemplateService',
+    '/app/services/TemplateService',
     '/app/services/print/r1777/MxTemplateService',
+    '/app/services/print/r1777/TemplateService',
+    '/app/services/r1777/print/MxTemplateService',
+    '/app/services/r1777/print/TemplateService',
     '/app/services/print/MxTemplateService',
+    '/app/services/print/TemplateService',
   ]);
   assert.deepEqual(buildTaskServicePaths('r1777'), [
     '/app/services/r1777/ExportImportService',
     '/app/services/ExportImportService',
     '/app/services/print/r1777/ExportImportService',
+    '/app/services/r1777/print/ExportImportService',
     '/app/services/print/ExportImportService',
   ]);
 });
