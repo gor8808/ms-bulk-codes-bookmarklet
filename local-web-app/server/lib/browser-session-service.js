@@ -18,6 +18,7 @@ class BrowserSessionService {
     this.context = null;
     this.page = null;
     this.operation = Promise.resolve();
+    this.lastRuntimeDiagnostics = '';
   }
 
   async withLock(action) {
@@ -112,17 +113,26 @@ class BrowserSessionService {
 
     return new Promise((resolve) => {
       let settled = false;
+      const seenRequests = [];
 
       const finish = (result) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         if (this.context) this.context.off('request', onRequest);
-        resolve(result);
+        this.collectRuntimeDiagnostics(seenRequests).then((diagnostics) => {
+          this.lastRuntimeDiagnostics = diagnostics;
+          resolve(result);
+        }).catch(() => resolve(result));
       };
 
       // Capture any GWT-RPC request header — X-GWT-Module-Base contains the version.
       const onRequest = (request) => {
+        seenRequests.push(`${request.method()} ${request.url()}`);
+        if (seenRequests.length > 40) {
+          seenRequests.shift();
+        }
+
         const headers = request.headers();
         const moduleBase = headers['x-gwt-module-base'];
         if (!moduleBase) return;
@@ -139,6 +149,33 @@ class BrowserSessionService {
       this.context.on('request', onRequest);
       this.page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
     });
+  }
+
+  async collectRuntimeDiagnostics(seenRequests) {
+    if (!this.page) {
+      return '';
+    }
+
+    const pageInfo = await this.page.evaluate(() => {
+      const resources = window.performance && typeof window.performance.getEntriesByType === 'function'
+        ? window.performance.getEntriesByType('resource').map((entry) => entry.name).slice(-30)
+        : [];
+      return [
+        `page.href=${window.location.href}`,
+        `page.title=${document.title}`,
+        `body.text=${(document.body && document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 300)}`,
+        ...resources.map((url) => `resource=${url}`),
+      ].join('\n');
+    }).catch(() => '');
+
+    return [
+      pageInfo,
+      ...(seenRequests || []).map((url) => `request=${url}`),
+    ].filter(Boolean).join('\n').slice(0, 4000);
+  }
+
+  getRuntimeDiagnostics() {
+    return this.lastRuntimeDiagnostics;
   }
 
   async close() {

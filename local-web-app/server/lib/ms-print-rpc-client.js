@@ -264,12 +264,14 @@ class MoySkladPrintRpcClient {
   async postAny(pathFactory, payloadFactory) {
     await this.resolveRuntimeConfig();
     let lastError = null;
+    const tried = [];
 
     for (let refreshAttempt = 0; refreshAttempt < 2; refreshAttempt += 1) {
       const paths = pathFactory();
       const payload = payloadFactory();
 
       for (const path of paths) {
+        tried.push(path);
         try {
           return await this.postOnce(path, payload);
         } catch (error) {
@@ -285,6 +287,15 @@ class MoySkladPrintRpcClient {
       }
     }
 
+    if (lastError) {
+      const diagnostics = typeof this.browserSession.getRuntimeDiagnostics === 'function'
+        ? this.browserSession.getRuntimeDiagnostics()
+        : '';
+      const uniqueTried = Array.from(new Set(tried));
+      lastError.message = `${lastError.message}\nПроверенные endpoint-ы: ${uniqueTried.join(', ')}${
+        diagnostics ? `\nДиагностика страницы МойСклад:\n${diagnostics}` : ''
+      }`;
+    }
     throw lastError;
   }
 
