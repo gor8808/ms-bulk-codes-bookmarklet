@@ -323,7 +323,7 @@ class MoySkladPrintRpcClient {
     );
     const taskId = extractAsyncTaskId(text);
     if (!taskId) {
-      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати.`);
+      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати. Ответ сервера: ${text.slice(0, 300)}`);
     }
     return taskId;
   }
