@@ -3,3 +3,4 @@ local-web-app/.env/
 local-web-app/.browser-profile/
 local-web-app/.downloads/
 local-web-app/.logs/
+.worktrees/
