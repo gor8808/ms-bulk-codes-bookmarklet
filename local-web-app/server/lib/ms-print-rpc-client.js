@@ -6,6 +6,43 @@ const DEFAULT_REF_ID = '0fecd212-1864-11ec-0a80-0865003ffa33';
 const PRINT_PROTOCOL_ERROR = 'Протокол печати МойСклад изменился. Требуется обновление интеграции.';
 const RPC_VERSION_PATTERN = 'r\\d+(?:-\\d+)?';
 
+// GWT-RPC type signatures (the digits after `Class/...`) are CRCs of each class's
+// serialized shape, baked into one MoySklad build. When MoySklad rebuilds their app
+// the CRCs change and the server rejects our payloads with an IncompatibleRemoteService
+// exception. These defaults document the build the payloads below were captured from;
+// at runtime the real signatures are discovered from MoySklad's serialization policy
+// and override these so a rebuild no longer breaks printing.
+const DEFAULT_TYPE_SIGNATURES = {
+  'java.lang.String': '2004016611',
+  'java.lang.Integer': '3438268394',
+  'java.lang.Boolean': '476441737',
+  'java.util.UUID': '2940008275',
+  'java.util.Date': '3385151746',
+  'java.util.HashSet': '3273092938',
+  'com.lognex.type.ID': '131549306',
+  'com.lognex.api.base.gwt.client.to.DocumentTO': '2469114615',
+  'com.lognex.api.base.gwt.client.common.Type': '1193462921',
+  'com.lognex.api.base.gwt.client.to.DocumentFormat': '1520872499',
+  'com.lognex.api.base.gwt.client.print.PriceQuantitySource': '1730076791',
+  'com.lognex.api.base.gwt.client.to.TemplateType': '4288425977',
+  '[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;': '2096942280',
+  'com.lognex.api.base.gwt.client.filter.ClientSortCriteria': '2929609327',
+  'com.lognex.api.base.gwt.client.change.DirtyTracker': '1761046355',
+  'com.lognex.api.base.gwt.client.to.RefTO': '3246906117',
+  'com.lognex.api.base.gwt.client.filter.ImmutableBooleanFilter': '599997023',
+  'com.lognex.api.base.gwt.client.filter2.PumpFilterDesc': '304620322',
+  '[Lcom.lognex.api.base.gwt.client.filter.PumpFilterParameter;': '204125189',
+  'com.lognex.api.base.gwt.client.filter.PumpFilterParameterBoolean': '3862516349',
+};
+
+// A type that only appears in the print payload, used to decide whether a discovered
+// policy file actually covers the print service before we trust it.
+const TYPE_SIGNATURE_PROBE = 'com.lognex.api.base.gwt.client.common.Type';
+
+// Matches a GWT type-signature token: optional `[L` array prefix, a dotted (package
+// qualified) class name, optional trailing `;`, then `/` and the CRC digits.
+const TYPE_SIGNATURE_TOKEN = /((?:\[+L)?[A-Za-z_$][\w$]*(?:\.[\w$]+)+;?)\/(\d{6,})/g;
+
 function firstMatch(text, regex) {
   const match = String(text || '').match(regex);
   return match ? match[1] : '';
@@ -143,6 +180,69 @@ function extractGwtStrings(text) {
   });
 }
 
+// Reads `Class/CRC` tokens out of any GWT artifact (compiled `*.cache.js`, an `//EX`
+// error body, etc.) into a className -> signature map.
+function extractTypeSignatures(text) {
+  const signatures = new Map();
+  const source = String(text || '');
+  let match;
+  TYPE_SIGNATURE_TOKEN.lastIndex = 0;
+  while ((match = TYPE_SIGNATURE_TOKEN.exec(source)) !== null) {
+    if (!signatures.has(match[1])) {
+      signatures.set(match[1], match[2]);
+    }
+  }
+  return signatures;
+}
+
+// Parses a GWT serialization policy file (`<strongName>.gwt.rpc`) — the same file the
+// server validates incoming payloads against. Each type line is comma separated and,
+// when the build embeds CRCs, the last numeric column is the type signature.
+function parseSerializationPolicy(text) {
+  const signatures = new Map();
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+    const columns = line.split(',').map((column) => column.trim());
+    const typeName = columns[0];
+    if (!typeName || !typeName.includes('.')) {
+      continue;
+    }
+    for (let index = columns.length - 1; index >= 1; index -= 1) {
+      if (/^\d{6,}$/.test(columns[index])) {
+        if (!signatures.has(typeName)) {
+          signatures.set(typeName, columns[index]);
+        }
+        break;
+      }
+    }
+  }
+  return signatures;
+}
+
+// Rewrites every `Class/CRC` token in a payload whose class is present in the discovered
+// signature map, leaving unknown tokens (and non-type slashes such as the module URL)
+// untouched.
+function applySignatureOverrides(payload, signatures) {
+  if (!signatures || typeof signatures.get !== 'function' || signatures.size === 0) {
+    return payload;
+  }
+  return String(payload).replace(TYPE_SIGNATURE_TOKEN, (whole, className) => {
+    const discovered = signatures.get(className);
+    return discovered ? `${className}/${discovered}` : whole;
+  });
+}
+
+// Turns a GWT `//EX[...]` exception body into a short, readable reason.
+function describeGwtException(text) {
+  const strings = extractGwtStrings(text);
+  const reason = strings.find((value) => /signature|exception|invalid|error/i.test(value) && !value.includes('/'));
+  const snippet = String(text || '').replace(/\s+/g, ' ').slice(0, 300);
+  return reason ? `${reason} Ответ сервера: ${snippet}` : `Ответ сервера: ${snippet}`;
+}
+
 function parseTemplateMetadata(text, templateName = 'Код маркировки и ШК') {
   const strings = extractGwtStrings(text);
   const fileIndex = strings.findIndex((value) => value === `${templateName}.xml`);
@@ -186,6 +286,84 @@ class MoySkladPrintRpcClient {
     this.taskTimeoutMs = options.taskTimeoutMs || 120000;
     this.template = null;
     this.runtimeConfigResolved = Boolean(options.skipRuntimeDiscovery);
+    this.typeSignatures = new Map();
+    this.typeSignaturesResolved = Boolean(options.skipRuntimeDiscovery);
+    this.typeSignatureDiagnostics = '';
+  }
+
+  // Discovers the live GWT type signatures for the current build from MoySklad's own
+  // serialization policy (falling back to the compiled permutation) so the payloads stay
+  // valid across MoySklad app rebuilds.
+  async resolveTypeSignatures(force = false) {
+    if (this.typeSignaturesResolved && !force) {
+      return;
+    }
+
+    let request;
+    try {
+      request = await this.browserSession.getRequestContext();
+    } catch (_) {
+      // Without a session we keep the hardcoded defaults baked into the payloads.
+      this.typeSignaturesResolved = true;
+      return;
+    }
+
+    const fetchText = async (url) => {
+      try {
+        const response = await request.get(url);
+        return response.ok() ? await response.text() : '';
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const merge = (source) => {
+      for (const [className, signature] of source) {
+        if (!merged.has(className)) {
+          merged.set(className, signature);
+        }
+      }
+    };
+
+    const merged = new Map();
+    const policyText = await fetchText(`${this.moduleBase}${this.permutation}.gwt.rpc`);
+    if (policyText) {
+      merge(parseSerializationPolicy(policyText));
+      merge(extractTypeSignatures(policyText));
+    }
+
+    if (!merged.has(TYPE_SIGNATURE_PROBE)) {
+      const cacheText = await fetchText(`${this.moduleBase}${this.permutation}.cache.js`);
+      if (cacheText) {
+        merge(extractTypeSignatures(cacheText));
+      }
+    }
+
+    if (merged.size > 0) {
+      this.typeSignatures = merged;
+    }
+    this.typeSignatureDiagnostics = `Сигнатур получено: ${merged.size}; ${TYPE_SIGNATURE_PROBE}=${merged.get(TYPE_SIGNATURE_PROBE) || 'не найдена'}`;
+    this.typeSignaturesResolved = true;
+  }
+
+  isSignatureMismatch(error) {
+    const haystack = error ? `${error.responseText || ''} ${error.message || ''}` : '';
+    return Boolean(error && error.gwtException && /Invalid type signature|IncompatibleRemoteServiceException/i.test(haystack));
+  }
+
+  decorateError(error, tried) {
+    if (!error || error.decorated) {
+      return error;
+    }
+    const diagnostics = typeof this.browserSession.getRuntimeDiagnostics === 'function'
+      ? this.browserSession.getRuntimeDiagnostics()
+      : '';
+    const uniqueTried = Array.from(new Set(tried));
+    error.message = `${error.message}\nПроверенные endpoint-ы: ${uniqueTried.join(', ')}${
+      this.typeSignatureDiagnostics ? `\n${this.typeSignatureDiagnostics}` : ''
+    }${diagnostics ? `\nДиагностика страницы МойСклад:\n${diagnostics}` : ''}`;
+    error.decorated = true;
+    return error;
   }
 
   async resolveRuntimeConfig(force = false) {
@@ -239,7 +417,7 @@ class MoySkladPrintRpcClient {
         'X-GWT-Module-Base': this.moduleBase,
         'X-GWT-Permutation': this.permutation,
       },
-      data: payload,
+      data: applySignatureOverrides(payload, this.typeSignatures),
     });
     const text = await response.text();
     if (!response.ok()) {
@@ -248,17 +426,31 @@ class MoySkladPrintRpcClient {
       error.path = path;
       throw error;
     }
+    // GWT returns server-side exceptions as an HTTP-200 body prefixed with `//EX`.
+    if (text.startsWith('//EX')) {
+      const error = new Error(`${PRINT_PROTOCOL_ERROR} ${describeGwtException(text)}`);
+      error.gwtException = true;
+      error.path = path;
+      error.responseText = text;
+      throw error;
+    }
     return text;
   }
 
   async post(pathFactory, payloadFactory) {
     await this.resolveRuntimeConfig();
+    await this.resolveTypeSignatures();
 
     try {
       return await this.postOnce(pathFactory(), payloadFactory());
     } catch (error) {
       if (error && error.status === 405) {
         await this.resolveRuntimeConfig(true);
+        await this.resolveTypeSignatures(true);
+        return this.postOnce(pathFactory(), payloadFactory());
+      }
+      if (this.isSignatureMismatch(error)) {
+        await this.resolveTypeSignatures(true);
         return this.postOnce(pathFactory(), payloadFactory());
       }
       throw error;
@@ -267,12 +459,19 @@ class MoySkladPrintRpcClient {
 
   async postAny(pathFactory, payloadFactory) {
     await this.resolveRuntimeConfig();
+    await this.resolveTypeSignatures();
     let lastError = null;
     const tried = [];
+    let refreshedRuntime = false;
+    let refreshedSignatures = false;
 
-    for (let refreshAttempt = 0; refreshAttempt < 2; refreshAttempt += 1) {
+    // Retry loop: a 405 means the endpoint moved (refresh runtime config), an
+    // `//EX` "Invalid type signature" means MoySklad rebuilt (refresh signatures).
+    // Each refresh is attempted at most once before giving up.
+    while (true) {
       const paths = pathFactory();
       const payload = payloadFactory();
+      let retriable = false;
 
       for (const path of paths) {
         tried.push(path);
@@ -280,27 +479,32 @@ class MoySkladPrintRpcClient {
           return await this.postOnce(path, payload);
         } catch (error) {
           lastError = error;
-          if (!error || error.status !== 405) {
-            throw error;
+          if (error && error.status === 405 && !refreshedRuntime) {
+            retriable = true;
+          } else if (this.isSignatureMismatch(error) && !refreshedSignatures) {
+            retriable = true;
+          } else {
+            throw this.decorateError(error, tried);
           }
         }
       }
 
-      if (refreshAttempt === 0) {
+      if (!retriable) {
+        break;
+      }
+      if (lastError && lastError.status === 405 && !refreshedRuntime) {
+        refreshedRuntime = true;
         await this.resolveRuntimeConfig(true);
+        await this.resolveTypeSignatures(true);
+      } else if (!refreshedSignatures) {
+        refreshedSignatures = true;
+        await this.resolveTypeSignatures(true);
+      } else {
+        break;
       }
     }
 
-    if (lastError) {
-      const diagnostics = typeof this.browserSession.getRuntimeDiagnostics === 'function'
-        ? this.browserSession.getRuntimeDiagnostics()
-        : '';
-      const uniqueTried = Array.from(new Set(tried));
-      lastError.message = `${lastError.message}\nПроверенные endpoint-ы: ${uniqueTried.join(', ')}${
-        diagnostics ? `\nДиагностика страницы МойСклад:\n${diagnostics}` : ''
-      }`;
-    }
-    throw lastError;
+    throw this.decorateError(lastError, tried);
   }
 
   async getEmissionOrderTemplates() {
@@ -334,7 +538,8 @@ class MoySkladPrintRpcClient {
     );
     const taskId = extractAsyncTaskId(text);
     if (!taskId) {
-      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати. Ответ сервера: ${String(text || '').slice(0, 500)}`);
+      const sigInfo = this.typeSignatureDiagnostics ? `\n${this.typeSignatureDiagnostics}` : '';
+      throw new Error(`${PRINT_PROTOCOL_ERROR} Не найден номер задачи печати. Ответ сервера: ${String(text || '').slice(0, 500)}${sigInfo}`);
     }
     return taskId;
   }
@@ -379,7 +584,12 @@ module.exports = {
   DEFAULT_MODULE_BASE,
   DEFAULT_PERMUTATION,
   DEFAULT_REF_ID,
+  DEFAULT_TYPE_SIGNATURES,
   PRINT_PROTOCOL_ERROR,
+  applySignatureOverrides,
+  describeGwtException,
+  extractTypeSignatures,
+  parseSerializationPolicy,
   buildRequestDocumentPayload,
   buildPrintServicePaths,
   buildTaskServicePaths,
