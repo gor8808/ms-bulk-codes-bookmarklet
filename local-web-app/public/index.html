@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
+    <div id="updateBanner" class="update-banner hidden" aria-live="polite"></div>
+    <div id="updateToast" class="update-toast hidden" aria-live="polite"></div>
     <main class="app">
       <nav class="tabs" aria-label="Рабочие процессы">
         <button id="createTabBtn" type="button" class="tab-button active">Создать заказы</button>
@@ -167,6 +169,16 @@
           <button id="resetBtn" type="button">Новый запуск</button>
         </div>
       </section>
+
+      <footer class="app-footer" aria-label="Состояние версии приложения">
+        <div class="app-footer__version">
+          <span class="app-footer__label">Версия</span>
+          <span id="updateVersionText" class="app-footer__value">Недоступно</span>
+        </div>
+        <button id="checkUpdatesBtn" type="button" class="app-footer__action">
+          Проверить обновления
+        </button>
+      </footer>
     </main>
 
     <script src="vendor/xlsx.min.js"></script>
@@ -175,5 +187,6 @@
     <script src="lib/settings-store.js"></script>
     <script src="lib/api-client.js"></script>
     <script src="app.js"></script>
+    <script src="update-banner.js"></script>
   </body>
 </html>

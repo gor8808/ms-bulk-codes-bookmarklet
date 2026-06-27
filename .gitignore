@@ -3,4 +3,8 @@ local-web-app/.env/
 local-web-app/.browser-profile/
 local-web-app/.downloads/
 local-web-app/.logs/
+local-web-app/.last-update
+local-web-app/.update-in-progress
+local-web-app/.update-progress
+local-web-app/.update.log
 .worktrees/
