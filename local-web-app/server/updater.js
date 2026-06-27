@@ -131,13 +131,13 @@ class Updater {
   }
 
   async ensureInitialStatus() {
-    await this.refreshStatus({ force: true, allowInstall: true }).catch(() => {});
+    await this.refreshStatus({ force: true }).catch(() => {});
   }
 
   async handleStatusRequest() {
     const isStale = (this.now() - this.lastStatusRefreshAt) > this.statusCacheTtlMs;
     if (isStale) {
-      await this.refreshStatus({ force: false, allowInstall: true }).catch(() => {});
+      await this.refreshStatus({ force: false }).catch(() => {});
     } else {
       await this.refreshFileBackedState();
       this.status.busy = this.isBusy();
@@ -154,12 +154,12 @@ class Updater {
     }
 
     this.lastCheckAt = this.now();
-    await this.refreshStatus({ force: true, allowInstall: true });
+    await this.refreshStatus({ force: true });
     return this.getStatus();
   }
 
   async handleInstallRequest(options = {}) {
-    await this.refreshStatus({ force: true, allowInstall: false });
+    await this.refreshStatus({ force: true });
     if (this.isLocked()) {
       const error = new Error('Обновление уже выполняется.');
       error.statusCode = 409;
@@ -183,7 +183,7 @@ class Updater {
     return this.getStatus();
   }
 
-  async refreshStatus({ force, allowInstall }) {
+  async refreshStatus({ force }) {
     const status = createDefaultStatus();
     status.busy = this.isBusy();
     status.current = await this.getCurrentTag();
@@ -200,11 +200,6 @@ class Updater {
         status.lastUpdate = status.lastUpdate || null;
       }
       status.releaseNotes = status.releaseNotes || '';
-    }
-
-    if (status.phase === 'idle' && status.updateAvailable && !status.busy && allowInstall && !this.isLocked()) {
-      await this.spawnUpdateRunner(status.latest, status.current);
-      await this.refreshFileBackedState(status);
     }
 
     status.busy = this.isBusy();
