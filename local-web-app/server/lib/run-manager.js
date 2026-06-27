@@ -28,6 +28,16 @@ class RunManager {
     return this.runs.get(runId) || null;
   }
 
+  hasActiveRuns() {
+    for (const run of this.runs.values()) {
+      if (!run.done) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   stop(runId) {
     const run = this.get(runId);
     if (!run) {

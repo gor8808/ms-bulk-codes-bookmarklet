@@ -92,6 +92,19 @@
       return readJsonResponse(response);
     },
 
+    async getUpdateStatus() {
+      const response = await fetch('/api/update/status', { cache: 'no-store' });
+      return readJsonResponse(response);
+    },
+
+    async checkForUpdates() {
+      return postJson('/api/update/check', {});
+    },
+
+    async installUpdate(force) {
+      return postJson('/api/update/install', { force: Boolean(force) });
+    },
+
     async validatePrint(payload) {
       return postJson('/api/print/validate', payload);
     },

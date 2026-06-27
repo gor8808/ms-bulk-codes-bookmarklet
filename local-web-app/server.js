@@ -16,35 +16,72 @@ const { SettingsFileStore } = require('./server/lib/settings-file-store');
 const { BrowserSessionService } = require('./server/lib/browser-session-service');
 const { MoySkladPrintRpcClient } = require('./server/lib/ms-print-rpc-client');
 const { PrintExportService, createDefaultZipWriter } = require('./server/lib/print-export-service');
+const { Updater } = require('./server/updater');
 
 const PORT = Number(process.env.PORT || 5177);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SETTINGS_PATH = path.join(__dirname, '.env', 'settings.json');
 
-const msClient = {
-  getOrganizations,
-  findAssortmentByBarcode,
-  createEmissionOrder,
-  getEmissionOrder,
-  getEmissionOrderPositions,
-};
-const runManager = new RunManager(new EmissionOrderService(msClient));
-const settingsStore = new SettingsFileStore(SETTINGS_PATH);
-const browserSession = new BrowserSessionService({ profileDir: path.join(__dirname, '.browser-profile') });
-const printRpcClient = new MoySkladPrintRpcClient(browserSession);
-const printRunManager = new RunManager(new PrintExportService({
-  msClient,
-  rpcClient: printRpcClient,
-  zipWriter: createDefaultZipWriter(__dirname),
-}));
-const printExportService = printRunManager.service;
-
 function normalizeError(error) {
   return error && error.message ? error.message : String(error);
 }
 
-async function handleApi(req, res) {
+function createApp(options = {}) {
+  const msClient = options.msClient || {
+    getOrganizations,
+    findAssortmentByBarcode,
+    createEmissionOrder,
+    getEmissionOrder,
+    getEmissionOrderPositions,
+  };
+  const runManager = options.runManager || new RunManager(new EmissionOrderService(msClient));
+  const settingsStore = options.settingsStore || new SettingsFileStore(SETTINGS_PATH);
+  const browserSession = options.browserSession || new BrowserSessionService({ profileDir: path.join(__dirname, '.browser-profile') });
+  const printRpcClient = options.printRpcClient || new MoySkladPrintRpcClient(browserSession);
+  const printRunManager = options.printRunManager || new RunManager(new PrintExportService({
+    msClient,
+    rpcClient: printRpcClient,
+    zipWriter: createDefaultZipWriter(__dirname),
+  }));
+  const printExportService = printRunManager.service;
+  const updater = options.updater || new Updater({
+    repoDir: path.resolve(__dirname, '..'),
+    appDir: __dirname,
+    serverPid: process.pid,
+    runManagers: [runManager, printRunManager],
+  });
+
+  async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (req.method === 'GET' && url.pathname === '/api/update/status') {
+    try {
+      sendJson(res, 200, await updater.handleStatusRequest());
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: normalizeError(error) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/update/check') {
+    try {
+      sendJson(res, 200, await updater.handleCheckRequest());
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: normalizeError(error) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/update/install') {
+    try {
+      const body = await readJson(req);
+      const status = await updater.handleInstallRequest({ force: Boolean(body.force) });
+      sendJson(res, 202, status);
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: normalizeError(error) });
+    }
+    return;
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/browser/login') {
     try {
@@ -231,17 +268,35 @@ async function handleApi(req, res) {
   }
 
   sendJson(res, 404, { ok: false, error: 'Not found' });
-}
-
-const server = http.createServer((req, res) => {
-  if (req.url.startsWith('/api/')) {
-    handleApi(req, res);
-    return;
   }
 
-  serveStatic(req, res, PUBLIC_DIR);
-});
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/api/')) {
+      handleApi(req, res);
+      return;
+    }
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Local MoySklad bulk app: http://localhost:${PORT}`);
-});
+    serveStatic(req, res, PUBLIC_DIR);
+  });
+
+  return {
+    server,
+    updater,
+    runManager,
+    printRunManager,
+    settingsStore,
+    browserSession,
+  };
+}
+
+if (require.main === module) {
+  const app = createApp();
+  app.updater.start().catch(() => {});
+  app.server.listen(PORT, '127.0.0.1', () => {
+    console.log(`Local MoySklad bulk app: http://localhost:${PORT}`);
+  });
+}
+
+module.exports = {
+  createApp,
+};
