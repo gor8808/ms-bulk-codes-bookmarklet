@@ -17,7 +17,7 @@ test('compareTags sorts semantic release tags numerically', () => {
   assert.equal(isUpdateAvailable('v0.2.0', 'v0.1.0'), false);
 });
 
-test('Updater handleStatusRequest returns cached state from GitHub + git tag', async () => {
+test('Updater handleStatusRequest returns cached state from GitHub + git tag without auto-installing', async () => {
   const rootDir = await createTempDir();
   const appDir = path.join(rootDir, 'local-web-app');
   await fsp.mkdir(appDir, { recursive: true });
@@ -48,7 +48,7 @@ test('Updater handleStatusRequest returns cached state from GitHub + git tag', a
   assert.equal(status.latest, 'v0.2.0');
   assert.equal(status.updateAvailable, true);
   assert.equal(status.releaseUrl, 'https://example.com/v0.2.0');
-  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls.length, 0);
 });
 
 test('Updater install request respects busy state unless forced', async () => {

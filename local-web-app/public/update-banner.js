@@ -119,7 +119,7 @@
     const hasFailure = status.phase === 'failed' || (status.lastUpdate && status.lastUpdate.error);
     const isWorking = status.phase === 'pulling' || status.phase === 'installing';
     const isRestarting = status.phase === 'restarting' || state.reconnectAfterRestart;
-    const shouldPromptInstall = Boolean(status.updateAvailable) && Boolean(status.busy);
+    const shouldPromptInstall = Boolean(status.updateAvailable) && status.phase === 'idle';
 
     if (hasFailure) {
       const errorText = escapeHtml((status.lastUpdate && status.lastUpdate.error) || '');
@@ -160,7 +160,9 @@
       els.banner.innerHTML = `
         <div class="update-banner__content">
           <strong>Доступно обновление ${latest}.</strong>
-          <span>Текущий запуск не будет остановлен автоматически. Перезапустите приложение, когда будет удобно.${releaseUrl}</span>
+          <span>${status.busy
+            ? `Сейчас идет задача. Перезапустите приложение, когда будет удобно.${releaseUrl}`
+            : `Обновление готово к установке. Нажмите кнопку, чтобы сразу перезапустить приложение.${releaseUrl}`}</span>
         </div>
         <div class="update-banner__actions">
           <button id="installUpdateBtn" type="button" class="update-banner__button">Перезапустить и обновить</button>
