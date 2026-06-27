@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_MODULE_BASE,
   DEFAULT_PERMUTATION,
+  DEFAULT_TYPE_SIGNATURES,
+  applySignatureOverrides,
+  describeGwtException,
+  extractTypeSignatures,
+  parseSerializationPolicy,
   buildRequestDocumentPayload,
   buildPrintServicePaths,
   buildTaskServicePaths,
@@ -138,4 +143,79 @@ test('buildRequestDocumentPayload substitutes document, position, quantity, and 
   assert.equal(payload.includes('|Код маркировки и ШК.xml|Template|admin@example.com|token-1|Код маркировки и ШК|'), true);
   assert.equal(payload.includes('|7|126|8|3|'), true);
   assert.equal(payload.includes('|0|45|11|'), true);
+});
+
+function buildSamplePayload() {
+  return buildRequestDocumentPayload({
+    documentId: '39732d8d-5124-11f1-0a80-1385001c4e14',
+    positionId: 'fe298f4d-5124-11f1-0a80-188a001c572d',
+    quantity: 1,
+    template: {
+      fileName: 'Код маркировки и ШК.xml',
+      templateType: 'Template',
+      ownerLogin: 'admin@example.com',
+      templateToken: 'token-1',
+      templateName: 'Код маркировки и ШК',
+      templateId: 'template-id',
+      accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+    },
+  });
+}
+
+test('every DEFAULT_TYPE_SIGNATURES token appears verbatim across the GWT payloads', () => {
+  const payloads = [
+    buildSamplePayload(),
+    buildTaskPayload('203b5527-51f4-11f1-0a80-056b0002e0f2'),
+    buildTemplatePayload(DEFAULT_MODULE_BASE),
+  ].join('\n');
+  for (const [className, signature] of Object.entries(DEFAULT_TYPE_SIGNATURES)) {
+    assert.equal(payloads.includes(`${className}/${signature}`), true, `missing ${className}/${signature}`);
+  }
+});
+
+test('extractTypeSignatures reads Class/CRC tokens out of compiled GWT JS', () => {
+  const js = 'a["com.lognex.api.base.gwt.client.common.Type/9998887776"]=1;'
+    + 'b["[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;/1112223334"]=2;';
+  const signatures = extractTypeSignatures(js);
+  assert.equal(signatures.get('com.lognex.api.base.gwt.client.common.Type'), '9998887776');
+  assert.equal(signatures.get('[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;'), '1112223334');
+});
+
+test('parseSerializationPolicy reads the CRC column out of a .gwt.rpc policy file', () => {
+  const policy = [
+    'com.lognex.api.base.gwt.client.common.Type, true, true, true, true, 9998887776',
+    'java.lang.String, false, true, true, true, 2004016611',
+    '# a comment line',
+    'not.a.policy.line',
+  ].join('\n');
+  const signatures = parseSerializationPolicy(policy);
+  assert.equal(signatures.get('com.lognex.api.base.gwt.client.common.Type'), '9998887776');
+  assert.equal(signatures.get('java.lang.String'), '2004016611');
+});
+
+test('applySignatureOverrides swaps known type signatures and leaves the rest intact', () => {
+  const payload = buildSamplePayload();
+  const overrides = new Map([['com.lognex.api.base.gwt.client.common.Type', '9998887776']]);
+  const rewritten = applySignatureOverrides(payload, overrides);
+
+  assert.equal(rewritten.includes('com.lognex.api.base.gwt.client.common.Type/9998887776'), true);
+  assert.equal(rewritten.includes('com.lognex.api.base.gwt.client.common.Type/1193462921'), false);
+  // Unknown types and the module URL are untouched.
+  assert.equal(rewritten.includes('java.util.UUID/2940008275'), true);
+  assert.equal(rewritten.includes(DEFAULT_MODULE_BASE), true);
+  // The document/position UUIDs must survive verbatim.
+  assert.equal(rewritten.includes('|39732d8d-5124-11f1-0a80-1385001c4e14|'), true);
+});
+
+test('applySignatureOverrides is a no-op for an empty signature map', () => {
+  const payload = buildSamplePayload();
+  assert.equal(applySignatureOverrides(payload, new Map()), payload);
+  assert.equal(applySignatureOverrides(payload, null), payload);
+});
+
+test('describeGwtException surfaces the MoySklad invalid-signature reason', () => {
+  const body = '//EX[2,1,["com.google.gwt.user.client.rpc.IncompatibleRemoteServiceException/3936916533",'
+    + '"Invalid type signature for com.lognex.api.base.gwt.client.common.Type"],0,7]';
+  const described = describeGwtException(body);
+  assert.equal(described.includes('Invalid type signature for com.lognex.api.base.gwt.client.common.Type'), true);
 });
