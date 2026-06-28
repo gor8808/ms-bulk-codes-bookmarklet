@@ -236,6 +236,17 @@ class Updater {
 
   async getCurrentTag() {
     try {
+      const headTagsResult = await this.execFileImpl('git', ['tag', '--points-at', 'HEAD'], {
+        cwd: this.repoDir,
+      });
+      const headTags = String(headTagsResult.stdout || '')
+        .split(/\r?\n/)
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      if (headTags.length > 0) {
+        return headTags.sort(compareTags).at(-1) || 'unknown';
+      }
+
       const { stdout } = await this.execFileImpl('git', ['describe', '--tags', '--abbrev=0'], {
         cwd: this.repoDir,
       });

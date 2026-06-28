@@ -34,6 +34,9 @@ test('Updater handleStatusRequest returns cached state from GitHub + git tag wit
     }), { status: 200 }),
     execFileImpl: async (file, args) => {
       assert.equal(file, 'git');
+      if (args[0] === 'tag') {
+        return { stdout: '' };
+      }
       assert.deepEqual(args, ['describe', '--tags', '--abbrev=0']);
       return { stdout: 'v0.1.0\n' };
     },
@@ -49,6 +52,32 @@ test('Updater handleStatusRequest returns cached state from GitHub + git tag wit
   assert.equal(status.updateAvailable, true);
   assert.equal(status.releaseUrl, 'https://example.com/v0.2.0');
   assert.equal(spawnCalls.length, 0);
+});
+
+test('Updater prefers the highest semver tag when multiple tags point at HEAD', async () => {
+  const rootDir = await createTempDir();
+  const appDir = path.join(rootDir, 'local-web-app');
+  await fsp.mkdir(appDir, { recursive: true });
+
+  const updater = new Updater({
+    repoDir: rootDir,
+    appDir,
+    runManagers: [],
+    fetchImpl: async () => new Response(JSON.stringify({ tag_name: 'v0.1.3' }), { status: 200 }),
+    execFileImpl: async (_, args) => {
+      if (args[0] === 'tag') {
+        return { stdout: 'v0.1.2\nv0.1.3\n' };
+      }
+      throw new Error(`Unexpected git call: ${args.join(' ')}`);
+    },
+    spawnImpl() {
+      return { unref() {} };
+    },
+  });
+
+  const status = await updater.handleStatusRequest();
+  assert.equal(status.current, 'v0.1.3');
+  assert.equal(status.updateAvailable, false);
 });
 
 test('Updater install request respects busy state unless forced', async () => {
