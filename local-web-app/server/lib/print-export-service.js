@@ -7,6 +7,10 @@ function normalizeError(error) {
   return error && error.message ? error.message : String(error);
 }
 
+function logPrint(message) {
+  console.log(`[print] ${new Date().toISOString()} ${message}`);
+}
+
 class PrintExportService {
   constructor({ msClient, rpcClient, zipWriter }) {
     this.msClient = msClient;
@@ -62,16 +66,62 @@ class PrintExportService {
 
         let fileName = dedupeFileName(position.fileName, usedNames);
         try {
+          onProgress({
+            step: 'print',
+            phase: 'requesting',
+            documentsCurrent: docIndex + 1,
+            documentsTotal: totalDocuments,
+            positionsCurrent: printed + failed.length,
+            positionsTotal: totalPositions,
+            lastFile: fileName,
+            pdfCreated: printed,
+            failed: failed.length,
+          });
+          logPrint(`requesting PDF for "${fileName}" (document=${document.id}, position=${position.id})`);
           const taskId = await this.rpcClient.requestPositionPdf({
             documentId: document.id,
             positionId: position.id,
             quantity: position.quantity,
           });
-          const downloadUrl = await this.rpcClient.pollPrintTask(taskId);
+          logPrint(`task accepted for "${fileName}": ${taskId}`);
+          onProgress({
+            step: 'print',
+            phase: 'waiting',
+            documentsCurrent: docIndex + 1,
+            documentsTotal: totalDocuments,
+            positionsCurrent: printed + failed.length,
+            positionsTotal: totalPositions,
+            lastFile: fileName,
+            pdfCreated: printed,
+            failed: failed.length,
+            waitSeconds: 0,
+          });
+          const downloadUrl = await this.rpcClient.pollPrintTask(taskId, {
+            onHeartbeat: ({ elapsedMs }) => {
+              const waitSeconds = Math.floor(elapsedMs / 1000);
+              onProgress({
+                step: 'print',
+                phase: 'waiting',
+                documentsCurrent: docIndex + 1,
+                documentsTotal: totalDocuments,
+                positionsCurrent: printed + failed.length,
+                positionsTotal: totalPositions,
+                lastFile: fileName,
+                pdfCreated: printed,
+                failed: failed.length,
+                waitSeconds,
+              });
+              if (waitSeconds > 0 && waitSeconds % 15 === 0) {
+                logPrint(`still waiting for "${fileName}" (${waitSeconds}s, task=${taskId})`);
+              }
+            },
+          });
           const pdf = await this.rpcClient.downloadPdf(downloadUrl);
           entries.push({ name: fileName, data: pdf });
           printed += 1;
+          logPrint(`downloaded PDF for "${fileName}"`);
         } catch (error) {
+          logPrint(`failed "${fileName}": ${normalizeError(error)}`);
           failed.push({
             documentName: document.name,
             positionId: position.id,
@@ -82,6 +132,7 @@ class PrintExportService {
 
         onProgress({
           step: 'print',
+          phase: 'completed',
           documentsCurrent: docIndex + 1,
           documentsTotal: totalDocuments,
           positionsCurrent: printed + failed.length,

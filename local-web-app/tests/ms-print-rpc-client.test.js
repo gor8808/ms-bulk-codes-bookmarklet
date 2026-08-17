@@ -15,9 +15,12 @@ const {
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,
+  extractServiceStrongName,
+  extractEnumOrdinal,
   extractModuleBase,
   extractAsyncTaskId,
   extractPdfUrl,
+  extractTaskFailure,
   parseRuntimeConfigFromHtml,
   parseTemplateMetadata,
   responseContainsTemplate,
@@ -35,6 +38,12 @@ test('extractPdfUrl reads temporary print-prod PDF URL', () => {
   const url = 'https://print-prod.moysklad.ru/temp/a/b/file.pdf';
   assert.equal(extractPdfUrl(`["done","${url}"]`), url);
   assert.equal(extractPdfUrl('pending'), '');
+});
+
+test('extractTaskFailure reads a failed asynchronous print response', () => {
+  const reason = 'Не удалось распечатать шаблон: Cannot invoke clazz';
+  assert.equal(extractTaskFailure(`//OK[1,2,["${reason}","DocumentGenerationException"],0,7]`), reason);
+  assert.equal(extractTaskFailure('//OK[1,2,["pending"],0,7]'), '');
 });
 
 test('responseContainsTemplate checks target template name', () => {
@@ -78,6 +87,20 @@ test('parseRuntimeConfigFromHtml reads RPC version and nocache script URL', () =
 test('extractGwtPermutation reads first GWT permutation strong name', () => {
   assert.equal(extractGwtPermutation('x 0123456789ABCDEF0123456789ABCDEF y'), '0123456789ABCDEF0123456789ABCDEF');
   assert.equal(extractGwtPermutation('no permutation'), '');
+});
+
+test('compiled GWT metadata exposes service policy names and enum ordinals', () => {
+  const cache = [
+    "IoU='EmissionOrder';",
+    "function px(){d9i.call(this,TJ(),null,'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',serializer)}",
+    "function init(){proxy(new gfk,new px,'PriceTypePrintService')}",
+    "var type=rYS(UnU,'Type',39,Y0i,eEk,dEk);",
+    'M7i(39,10,{39:1},RDk,SDk);',
+    'Utk=new SDk(IoU,128,metadata);',
+  ].join('');
+  assert.equal(extractServiceStrongName(cache, 'PriceTypePrintService'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+  assert.equal(extractEnumOrdinal(cache, 'Type', 'EmissionOrder'), 128);
+  assert.equal(extractServiceStrongName(cache, 'UnknownService'), '');
 });
 
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
@@ -143,6 +166,20 @@ test('buildRequestDocumentPayload substitutes document, position, quantity, and 
   assert.equal(payload.includes('|Код маркировки и ШК.xml|Template|admin@example.com|token-1|Код маркировки и ШК|'), true);
   assert.equal(payload.includes('|7|126|8|3|'), true);
   assert.equal(payload.includes('|0|45|11|'), true);
+});
+
+test('buildRequestDocumentPayload accepts the runtime EmissionOrder ordinal', () => {
+  const payload = buildRequestDocumentPayload({
+    documentId: '39732d8d-5124-11f1-0a80-1385001c4e14',
+    positionId: 'fe298f4d-5124-11f1-0a80-188a001c572d',
+    quantity: 1,
+    emissionOrderOrdinal: 128,
+    template: {
+      fileName: 'template.xml', templateType: 'Template', ownerLogin: 'admin@example.com',
+      templateToken: 'token', templateName: 'template', templateId: 'template-id', accountId: 'account-id',
+    },
+  });
+  assert.equal(payload.includes('|7|128|8|3|'), true);
 });
 
 function buildSamplePayload() {

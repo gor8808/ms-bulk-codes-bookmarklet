@@ -33,6 +33,7 @@
     { value: 'COMMISSION', label: 'Принят на комиссию от физического лица' },
     { value: 'CROSSBORDER', label: 'Трансграничная торговля' },
   ];
+  const ACTIVE_PRINT_RUN_KEY = 'ms_bulk_active_print_run';
 
   const state = {
     settings: window.SettingsStore.load(),
@@ -127,6 +128,21 @@
     const isPrint = name.startsWith('print');
     els.createTabBtn.classList.toggle('active', !isPrint);
     els.printTabBtn.classList.toggle('active', isPrint);
+  }
+
+  function saveActivePrintRun(runId) {
+    if (runId) {
+      window.sessionStorage.setItem(ACTIVE_PRINT_RUN_KEY, runId);
+    } else {
+      window.sessionStorage.removeItem(ACTIVE_PRINT_RUN_KEY);
+    }
+  }
+
+  function closePrintEventSource() {
+    if (state.printEventSource) {
+      state.printEventSource.close();
+      state.printEventSource = null;
+    }
   }
 
   function collectSettings() {
@@ -427,15 +443,22 @@
 
   function updatePrintProgress(event) {
     const total = event.positionsTotal || 1;
+    const phaseText = event.phase === 'waiting'
+      ? `Ожидание PDF${event.waitSeconds ? ` (${event.waitSeconds}s)` : ''}`
+      : event.phase === 'requesting'
+        ? 'Отправка задания в МойСклад'
+        : '';
     els.printProgressDocs.textContent = `Документы: ${event.documentsCurrent || 0} из ${event.documentsTotal || 0}`;
     els.printProgressPositions.textContent = `Позиции: ${event.positionsCurrent || 0} из ${event.positionsTotal || 0}`;
-    els.printProgressLast.textContent = `Последний файл: ${event.lastFile || ''}`;
+    els.printProgressLast.textContent = `Последний файл: ${event.lastFile || ''}${phaseText ? ` | ${phaseText}` : ''}`;
     els.printProgressBar.style.width = `${Math.round(((event.positionsCurrent || 0) / total) * 100)}%`;
   }
 
   function renderPrintSummary(response) {
+    closePrintEventSource();
     showView('printSummary');
     els.downloadZipLink.classList.add('hidden');
+    saveActivePrintRun(null);
     if (!response.ok) {
       els.printSummaryCounts.textContent = response.error;
       const failed = response.result && Array.isArray(response.result.failed) ? response.result.failed : [];
@@ -469,6 +492,7 @@
     try {
       const response = await window.ApiClient.startPrintRun({ urls, settings: state.settings });
       state.printRunId = response.runId;
+      saveActivePrintRun(response.runId);
       state.printEventSource = window.ApiClient.createPrintRunEventSource(response.runId, {
         onProgress: updatePrintProgress,
         onDone: renderPrintSummary,
@@ -544,21 +568,58 @@
   }
 
   function resetPrint() {
-    if (state.printEventSource) {
-      state.printEventSource.close();
-    }
+    closePrintEventSource();
     state.printRunId = null;
-    state.printEventSource = null;
     state.printValidated = null;
+    saveActivePrintRun(null);
     els.printProgressBar.style.width = '0%';
     els.startPrintBtn.disabled = true;
     els.downloadZipLink.classList.add('hidden');
     showView('printInput');
   }
 
+  async function restoreActivePrintRun() {
+    const runId = window.sessionStorage.getItem(ACTIVE_PRINT_RUN_KEY);
+    if (!runId) {
+      return false;
+    }
+
+    try {
+      const response = await window.ApiClient.getPrintRun(runId);
+      state.printRunId = response.run.id;
+      if (response.run.input && Array.isArray(response.run.input.urls) && response.run.input.urls.length > 0) {
+        els.printUrls.value = response.run.input.urls.join('\n');
+      }
+
+      if (response.run.done) {
+        renderPrintSummary(response.run.result || { ok: false, error: 'Запуск завершен без результата' });
+        return true;
+      }
+
+      showView('printProgress');
+      if (response.run.lastProgress) {
+        updatePrintProgress(response.run.lastProgress);
+      } else {
+        updatePrintProgress({ documentsCurrent: 0, documentsTotal: 0, positionsCurrent: 0, positionsTotal: 0, lastFile: '' });
+      }
+      closePrintEventSource();
+      state.printEventSource = window.ApiClient.createPrintRunEventSource(response.run.id, {
+        onProgress: updatePrintProgress,
+        onDone: renderPrintSummary,
+        onError: (error) => renderPrintSummary({ ok: false, error: error.message }),
+      });
+      return true;
+    } catch (_) {
+      saveActivePrintRun(null);
+      state.printRunId = null;
+      return false;
+    }
+  }
+
   async function init() {
     fillSelect(els.trackingType, TRACKING_TYPES);
     fillSelect(els.emissionType, EMISSION_TYPES);
+    showView('input');
     renderSettings();
     try {
       const response = await window.ApiClient.loadSettings();
@@ -614,7 +675,9 @@
     els.validatePrintBtn.addEventListener('click', validatePrintDocuments);
     els.startPrintBtn.addEventListener('click', startPrintRun);
     els.printResetBtn.addEventListener('click', resetPrint);
-    checkBrowserStatus();
+    if (!await restoreActivePrintRun()) {
+      checkBrowserStatus();
+    }
   }
 
   init();
