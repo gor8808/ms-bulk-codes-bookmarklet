@@ -160,6 +160,30 @@ function createApp(options = {}) {
     return;
   }
 
+  if (req.method === 'GET' && /^\/api\/print\/runs\/[^/]+$/.test(url.pathname)) {
+    const runId = url.pathname.split('/')[4];
+    const run = printRunManager.get(runId);
+    if (!run) {
+      sendJson(res, 404, { ok: false, error: 'Запуск не найден' });
+      return;
+    }
+
+    const lastProgress = [...run.events].reverse().find((event) => event.type === 'progress') || null;
+    sendJson(res, 200, {
+      ok: true,
+      run: {
+        id: run.id,
+        done: run.done,
+        result: run.result,
+        input: {
+          urls: Array.isArray(run.input && run.input.urls) ? run.input.urls : [],
+        },
+        lastProgress,
+      },
+    });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname.startsWith('/api/print/runs/') && url.pathname.endsWith('/download')) {
     const runId = url.pathname.split('/')[4];
     const run = printRunManager.get(runId);

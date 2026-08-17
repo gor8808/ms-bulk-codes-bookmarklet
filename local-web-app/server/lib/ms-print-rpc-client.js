@@ -3,6 +3,7 @@ const DEFAULT_RPC_VERSION = 'r1668';
 const DEFAULT_MODULE_BASE = 'https://cdn-static.moysklad.ru/app/cdn/r1668/';
 const DEFAULT_PERMUTATION = '65DD15C4D67E019A7A66BAD8ED43273D';
 const DEFAULT_REF_ID = '0fecd212-1864-11ec-0a80-0865003ffa33';
+const DEFAULT_EMISSION_ORDER_ORDINAL = 126;
 const PRINT_PROTOCOL_ERROR = 'Протокол печати МойСклад изменился. Требуется обновление интеграции.';
 const RPC_VERSION_PATTERN = 'r\\d+(?:-\\d+)?';
 
@@ -96,6 +97,61 @@ function extractGwtPermutation(text) {
   return values[0] || '';
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// GWT uses the page permutation in the request header, but each RPC proxy embeds its
+// own serialization-policy strong name in token 5 of the request body.
+function extractServiceStrongName(cacheText, serviceName) {
+  const source = String(cacheText || '');
+  const servicePattern = new RegExp(`["']${escapeRegex(serviceName)}["']`, 'g');
+  let serviceMatch;
+  while ((serviceMatch = servicePattern.exec(source)) !== null) {
+    const prefix = source.slice(Math.max(0, serviceMatch.index - 400), serviceMatch.index);
+    const constructors = Array.from(prefix.matchAll(/new\s+([A-Za-z_$][\w$]*)/g), (match) => match[1]).reverse();
+    for (const constructorName of constructors) {
+      const constructorPattern = new RegExp(
+        `function\\s+${escapeRegex(constructorName)}\\(\\)\\{[^}]{0,600}?["']([A-F0-9]{32})["']`,
+      );
+      const constructorMatch = source.match(constructorPattern);
+      if (constructorMatch) {
+        return constructorMatch[1];
+      }
+    }
+  }
+  return '';
+}
+
+function extractEnumOrdinal(cacheText, typeName, enumValue) {
+  const source = String(cacheText || '');
+  const typeMatch = source.match(new RegExp(`rYS\\([^;]{0,240}?["']${escapeRegex(typeName)}["'],(\\d+),`));
+  if (!typeMatch) {
+    return null;
+  }
+
+  const classMatch = source.match(new RegExp(`M7i\\(${typeMatch[1]},[^;]{0,800}?([A-Za-z_$][\\w$]*)\\);`));
+  if (!classMatch) {
+    return null;
+  }
+
+  const valuePatterns = [`["']${escapeRegex(enumValue)}["']`];
+  const aliasPattern = new RegExp(`(?:^|[,;])([A-Za-z_$][\\w$]*)=["']${escapeRegex(enumValue)}["']`, 'g');
+  for (const aliasMatch of source.matchAll(aliasPattern)) {
+    valuePatterns.push(escapeRegex(aliasMatch[1]));
+  }
+
+  for (const valuePattern of valuePatterns) {
+    const ordinalMatch = source.match(new RegExp(
+      `new\\s+${escapeRegex(classMatch[1])}\\(${valuePattern},(\\d+),`,
+    ));
+    if (ordinalMatch) {
+      return Number(ordinalMatch[1]);
+    }
+  }
+  return null;
+}
+
 function parseRuntimeConfigFromHtml(html) {
   const moduleBase = extractModuleBase(html);
   return {
@@ -138,6 +194,15 @@ function extractAsyncTaskId(text) {
 function extractPdfUrl(text) {
   const match = String(text || '').match(/https:\/\/print-prod\.moysklad\.ru\/temp\/[^"',\]\s]+\.pdf/i);
   return match ? match[0] : '';
+}
+
+function extractTaskFailure(text) {
+  const strings = extractGwtStrings(text);
+  const failure = strings.find((value) => (
+    /^(?:Не удалось|Ошибка|Failed\b|Error\b|Cannot invoke\b)/i.test(value)
+    || /(?:DocumentGenerationException|PrintException)/.test(value)
+  ));
+  return failure || '';
 }
 
 function responseContainsTemplate(text, templateName = 'Код маркировки и ШК') {
@@ -270,9 +335,11 @@ function buildRequestDocumentPayload({
   moduleBase = DEFAULT_MODULE_BASE,
   permutation = DEFAULT_PERMUTATION,
   refId = DEFAULT_REF_ID,
+  emissionOrderOrdinal = DEFAULT_EMISSION_ORDER_ORDINAL,
 }) {
   const safeQuantity = Math.max(1, Math.trunc(Number(quantity) || 1));
-  return `7|0|40|${moduleBase}|${permutation}|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.api.base.gwt.client.to.DocumentTO/2469114615|com.lognex.type.ID/131549306|com.lognex.api.base.gwt.client.common.Type/1193462921|com.lognex.api.base.gwt.client.to.DocumentFormat/1520872499|com.lognex.api.base.gwt.client.to.IRefTO|I|com.lognex.api.base.gwt.client.print.PriceQuantitySource/1730076791|java.lang.Integer/3438268394|com.lognex.api.base.gwt.client.to.TemplateType/4288425977|java.util.Set|[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;/2096942280|com.lognex.api.base.gwt.client.filter.ClientSortCriteria/2929609327|java.util.Date/3385151746|${template.fileName}|${template.templateType}|${template.ownerLogin}|${template.templateToken}|${template.templateName}|java.util.UUID/2940008275|${template.accountId}|com.lognex.api.base.gwt.client.change.DirtyTracker/1761046355||${template.templateId}|${documentId}|com.lognex.api.base.gwt.client.to.RefTO/3246906117|${refId}|java.util.HashSet/3273092938|${positionId}|com.lognex.api.base.gwt.client.filter.ImmutableBooleanFilter/599997023|com.lognex.api.base.gwt.client.filter2.PumpFilterDesc/304620322|testPrintFilter|[Lcom.lognex.api.base.gwt.client.filter.PumpFilterParameter;/204125189|com.lognex.api.base.gwt.client.filter.PumpFilterParameterBoolean/3862516349|java.lang.Boolean/476441737|value|printAllCodesFilter|1|2|3|4|13|5|6|7|8|9|10|11|9|12|13|14|15|16|5|17|ZxQxboj|0|1|18|12|4|19|BiB|20|0|0|21|22|23|24|0|25|0|0|26|6|23|27|1|1|0|26|0|0|17|ZxQxboj|26|A|6|23|28|7|126|8|3|29|0|26|25|0|0|26|0|${safeQuantity}|11|0|29|0|0|25|1|6|23|30|0|0|12|1|13|3|31|1|6|23|32|15|2|33|0|34|0|0|0|35|36|1|37|38|0|39|0|-28|33|0|34|0|0|0|40|36|1|37|38|1|39|0|-33|0|`;
+  const safeOrdinal = Math.max(0, Math.trunc(Number(emissionOrderOrdinal)) || DEFAULT_EMISSION_ORDER_ORDINAL);
+  return `7|0|40|${moduleBase}|${permutation}|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.api.base.gwt.client.to.DocumentTO/2469114615|com.lognex.type.ID/131549306|com.lognex.api.base.gwt.client.common.Type/1193462921|com.lognex.api.base.gwt.client.to.DocumentFormat/1520872499|com.lognex.api.base.gwt.client.to.IRefTO|I|com.lognex.api.base.gwt.client.print.PriceQuantitySource/1730076791|java.lang.Integer/3438268394|com.lognex.api.base.gwt.client.to.TemplateType/4288425977|java.util.Set|[Lcom.lognex.api.base.gwt.client.filter.PumpFilter;/2096942280|com.lognex.api.base.gwt.client.filter.ClientSortCriteria/2929609327|java.util.Date/3385151746|${template.fileName}|${template.templateType}|${template.ownerLogin}|${template.templateToken}|${template.templateName}|java.util.UUID/2940008275|${template.accountId}|com.lognex.api.base.gwt.client.change.DirtyTracker/1761046355||${template.templateId}|${documentId}|com.lognex.api.base.gwt.client.to.RefTO/3246906117|${refId}|java.util.HashSet/3273092938|${positionId}|com.lognex.api.base.gwt.client.filter.ImmutableBooleanFilter/599997023|com.lognex.api.base.gwt.client.filter2.PumpFilterDesc/304620322|testPrintFilter|[Lcom.lognex.api.base.gwt.client.filter.PumpFilterParameter;/204125189|com.lognex.api.base.gwt.client.filter.PumpFilterParameterBoolean/3862516349|java.lang.Boolean/476441737|value|printAllCodesFilter|1|2|3|4|13|5|6|7|8|9|10|11|9|12|13|14|15|16|5|17|ZxQxboj|0|1|18|12|4|19|BiB|20|0|0|21|22|23|24|0|25|0|0|26|6|23|27|1|1|0|26|0|0|17|ZxQxboj|26|A|6|23|28|7|${safeOrdinal}|8|3|29|0|26|25|0|0|26|0|${safeQuantity}|11|0|29|0|0|25|1|6|23|30|0|0|12|1|13|3|31|1|6|23|32|15|2|33|0|34|0|0|0|35|36|1|37|38|0|39|0|-28|33|0|34|0|0|0|40|36|1|37|38|1|39|0|-33|0|`;
 }
 
 class MoySkladPrintRpcClient {
@@ -287,6 +354,8 @@ class MoySkladPrintRpcClient {
     this.template = null;
     this.runtimeConfigResolved = Boolean(options.skipRuntimeDiscovery);
     this.typeSignatures = new Map();
+    this.serviceStrongNames = new Map();
+    this.emissionOrderOrdinal = DEFAULT_EMISSION_ORDER_ORDINAL;
     this.typeSignaturesResolved = Boolean(options.skipRuntimeDiscovery);
     this.typeSignatureDiagnostics = '';
   }
@@ -332,17 +401,31 @@ class MoySkladPrintRpcClient {
       merge(extractTypeSignatures(policyText));
     }
 
-    if (!merged.has(TYPE_SIGNATURE_PROBE)) {
-      const cacheText = await fetchText(`${this.moduleBase}${this.permutation}.cache.js`);
-      if (cacheText) {
+    const cacheText = await fetchText(`${this.moduleBase}${this.permutation}.cache.js`);
+    if (cacheText) {
+      if (!merged.has(TYPE_SIGNATURE_PROBE)) {
         merge(extractTypeSignatures(cacheText));
+      }
+      for (const [key, serviceName] of [
+        ['template', 'MxTemplateService'],
+        ['print', 'PriceTypePrintService'],
+        ['task', 'ExportImportService'],
+      ]) {
+        const strongName = extractServiceStrongName(cacheText, serviceName);
+        if (strongName) {
+          this.serviceStrongNames.set(key, strongName);
+        }
+      }
+      const ordinal = extractEnumOrdinal(cacheText, 'Type', 'EmissionOrder');
+      if (ordinal !== null) {
+        this.emissionOrderOrdinal = ordinal;
       }
     }
 
     if (merged.size > 0) {
       this.typeSignatures = merged;
     }
-    this.typeSignatureDiagnostics = `Сигнатур получено: ${merged.size}; ${TYPE_SIGNATURE_PROBE}=${merged.get(TYPE_SIGNATURE_PROBE) || 'не найдена'}`;
+    this.typeSignatureDiagnostics = `Сигнатур получено: ${merged.size}; ${TYPE_SIGNATURE_PROBE}=${merged.get(TYPE_SIGNATURE_PROBE) || 'не найдена'}; EmissionOrder=${this.emissionOrderOrdinal}; RPC policies=${this.serviceStrongNames.size}/3`;
     this.typeSignaturesResolved = true;
   }
 
@@ -510,7 +593,7 @@ class MoySkladPrintRpcClient {
   async getEmissionOrderTemplates() {
     const text = await this.postAny(
       () => buildTemplateServicePaths(this.rpcVersion),
-      () => buildTemplatePayload(this.moduleBase, this.permutation),
+      () => buildTemplatePayload(this.moduleBase, this.serviceStrongNames.get('template') || this.permutation),
     );
     const template = parseTemplateMetadata(text, this.templateName);
     if (!template) {
@@ -532,8 +615,9 @@ class MoySkladPrintRpcClient {
         quantity,
         template: this.template,
         moduleBase: this.moduleBase,
-        permutation: this.permutation,
+        permutation: this.serviceStrongNames.get('print') || this.permutation,
         refId: this.refId,
+        emissionOrderOrdinal: this.emissionOrderOrdinal,
       }),
     );
     const taskId = extractAsyncTaskId(text);
@@ -544,17 +628,26 @@ class MoySkladPrintRpcClient {
     return taskId;
   }
 
-  async pollPrintTask(taskId) {
+  async pollPrintTask(taskId, hooks = {}) {
     const started = Date.now();
+    const onHeartbeat = typeof hooks.onHeartbeat === 'function' ? hooks.onHeartbeat : () => {};
     while (Date.now() - started < this.taskTimeoutMs) {
       const text = await this.postAny(
         () => buildTaskServicePaths(this.rpcVersion),
-        () => buildTaskPayload(taskId, this.moduleBase, this.permutation),
+        () => buildTaskPayload(taskId, this.moduleBase, this.serviceStrongNames.get('task') || this.permutation),
       );
       const downloadUrl = extractPdfUrl(text);
       if (downloadUrl) {
         return downloadUrl;
       }
+      const failure = extractTaskFailure(text);
+      if (failure) {
+        throw new Error(`МойСклад не смог подготовить PDF: ${failure}`);
+      }
+      onHeartbeat({
+        taskId,
+        elapsedMs: Date.now() - started,
+      });
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     throw new Error('МойСклад не подготовил PDF за отведенное время.');
@@ -584,6 +677,7 @@ module.exports = {
   DEFAULT_MODULE_BASE,
   DEFAULT_PERMUTATION,
   DEFAULT_REF_ID,
+  DEFAULT_EMISSION_ORDER_ORDINAL,
   DEFAULT_TYPE_SIGNATURES,
   PRINT_PROTOCOL_ERROR,
   applySignatureOverrides,
@@ -597,10 +691,13 @@ module.exports = {
   buildTaskPayload,
   buildTemplatePayload,
   extractGwtPermutation,
+  extractServiceStrongName,
+  extractEnumOrdinal,
   extractModuleBase,
   extractAsyncTaskId,
   extractGwtStrings,
   extractPdfUrl,
+  extractTaskFailure,
   parseRuntimeConfigFromHtml,
   parseTemplateMetadata,
   responseContainsTemplate,

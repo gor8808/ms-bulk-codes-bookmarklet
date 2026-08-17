@@ -96,8 +96,15 @@ test('PrintExportService run prints every position, dedupes ZIP names, and repor
     'Bdm2-55d БЕЛЫЙ р.104(36-48) - 45шт.pdf',
     'Bdm2-55d БЕЛЫЙ р.104(36-48) - 12шт.pdf',
   ]);
-  assert.equal(progress.length, 2);
-  assert.equal(progress[1].positionsCurrent, 2);
+  assert.deepEqual(progress.map((entry) => entry.phase), [
+    'requesting',
+    'waiting',
+    'completed',
+    'requesting',
+    'waiting',
+    'completed',
+  ]);
+  assert.equal(progress[5].positionsCurrent, 2);
 });
 
 test('PrintExportService run records failed positions and returns error when no PDFs were created', async () => {

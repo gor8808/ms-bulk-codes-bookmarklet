@@ -113,6 +113,11 @@
       return postJson('/api/print/run', payload);
     },
 
+    async getPrintRun(runId) {
+      const response = await fetch(`/api/print/runs/${encodeURIComponent(runId)}`, { cache: 'no-store' });
+      return readJsonResponse(response);
+    },
+
     getPrintDownloadUrl(runId) {
       return `/api/print/runs/${encodeURIComponent(runId)}/download`;
     },
