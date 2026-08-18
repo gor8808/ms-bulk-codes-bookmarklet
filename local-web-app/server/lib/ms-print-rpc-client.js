@@ -358,14 +358,21 @@ class MoySkladPrintRpcClient {
     this.emissionOrderOrdinal = DEFAULT_EMISSION_ORDER_ORDINAL;
     this.typeSignaturesResolved = Boolean(options.skipRuntimeDiscovery);
     this.typeSignatureDiagnostics = '';
+    this.typeSignatureError = '';
   }
 
   // Discovers the live GWT type signatures for the current build from MoySklad's own
   // serialization policy (falling back to the compiled permutation) so the payloads stay
   // valid across MoySklad app rebuilds.
   async resolveTypeSignatures(force = false) {
+    if (this.typeSignatureError && !force) {
+      throw new Error(this.typeSignatureError);
+    }
     if (this.typeSignaturesResolved && !force) {
       return;
+    }
+    if (force) {
+      this.typeSignatureError = '';
     }
 
     let request;
@@ -377,55 +384,91 @@ class MoySkladPrintRpcClient {
       return;
     }
 
+    const fetchFailures = [];
     const fetchText = async (url) => {
       try {
         const response = await request.get(url);
-        return response.ok() ? await response.text() : '';
-      } catch (_) {
-        return '';
+        if (response.ok()) {
+          return await response.text();
+        }
+        fetchFailures.push(`HTTP ${response.status()} ${url}`);
+      } catch (error) {
+        fetchFailures.push(`${error && error.message ? error.message : error} ${url}`);
       }
+      return '';
     };
 
-    const merge = (source) => {
-      for (const [className, signature] of source) {
-        if (!merged.has(className)) {
-          merged.set(className, signature);
+    const loadMetadata = async () => {
+      const merged = new Map();
+      const serviceStrongNames = new Map();
+      let emissionOrderOrdinal = null;
+      const merge = (source) => {
+        for (const [className, signature] of source) {
+          if (!merged.has(className)) {
+            merged.set(className, signature);
+          }
         }
+      };
+
+      const policyText = await fetchText(`${this.moduleBase}${this.permutation}.gwt.rpc`);
+      if (policyText) {
+        merge(parseSerializationPolicy(policyText));
+        merge(extractTypeSignatures(policyText));
       }
+
+      const cacheText = await fetchText(`${this.moduleBase}${this.permutation}.cache.js`);
+      if (cacheText) {
+        if (!merged.has(TYPE_SIGNATURE_PROBE)) {
+          merge(extractTypeSignatures(cacheText));
+        }
+        for (const [key, serviceName] of [
+          ['template', 'MxTemplateService'],
+          ['print', 'PriceTypePrintService'],
+          ['task', 'ExportImportService'],
+        ]) {
+          const strongName = extractServiceStrongName(cacheText, serviceName);
+          if (strongName) {
+            serviceStrongNames.set(key, strongName);
+          }
+        }
+        emissionOrderOrdinal = extractEnumOrdinal(cacheText, 'Type', 'EmissionOrder');
+      }
+
+      return { merged, serviceStrongNames, emissionOrderOrdinal };
     };
 
-    const merged = new Map();
-    const policyText = await fetchText(`${this.moduleBase}${this.permutation}.gwt.rpc`);
-    if (policyText) {
-      merge(parseSerializationPolicy(policyText));
-      merge(extractTypeSignatures(policyText));
-    }
+    const metadataIsComplete = (metadata) => (
+      metadata.merged.has(TYPE_SIGNATURE_PROBE)
+      && metadata.serviceStrongNames.size === 3
+      && metadata.emissionOrderOrdinal !== null
+    );
 
-    const cacheText = await fetchText(`${this.moduleBase}${this.permutation}.cache.js`);
-    if (cacheText) {
-      if (!merged.has(TYPE_SIGNATURE_PROBE)) {
-        merge(extractTypeSignatures(cacheText));
-      }
-      for (const [key, serviceName] of [
-        ['template', 'MxTemplateService'],
-        ['print', 'PriceTypePrintService'],
-        ['task', 'ExportImportService'],
-      ]) {
-        const strongName = extractServiceStrongName(cacheText, serviceName);
-        if (strongName) {
-          this.serviceStrongNames.set(key, strongName);
-        }
-      }
-      const ordinal = extractEnumOrdinal(cacheText, 'Type', 'EmissionOrder');
-      if (ordinal !== null) {
-        this.emissionOrderOrdinal = ordinal;
+    let metadata = await loadMetadata();
+    if (!metadataIsComplete(metadata) && typeof this.browserSession.discoverGwtParams === 'function') {
+      const params = await this.browserSession.discoverGwtParams().catch(() => null);
+      if (params && params.rpcVersion && params.moduleBase && params.permutation) {
+        this.rpcVersion = params.rpcVersion;
+        this.moduleBase = normalizeModuleBase(params.moduleBase);
+        this.permutation = params.permutation;
+        this.template = null;
+        metadata = await loadMetadata();
       }
     }
 
-    if (merged.size > 0) {
-      this.typeSignatures = merged;
+    this.typeSignatures = metadata.merged;
+    this.serviceStrongNames = metadata.serviceStrongNames;
+    if (metadata.emissionOrderOrdinal !== null) {
+      this.emissionOrderOrdinal = metadata.emissionOrderOrdinal;
     }
-    this.typeSignatureDiagnostics = `Сигнатур получено: ${merged.size}; ${TYPE_SIGNATURE_PROBE}=${merged.get(TYPE_SIGNATURE_PROBE) || 'не найдена'}; EmissionOrder=${this.emissionOrderOrdinal}; RPC policies=${this.serviceStrongNames.size}/3`;
+    this.typeSignatureDiagnostics = `Сигнатур получено: ${metadata.merged.size}; ${TYPE_SIGNATURE_PROBE}=${metadata.merged.get(TYPE_SIGNATURE_PROBE) || 'не найдена'}; EmissionOrder=${metadata.emissionOrderOrdinal === null ? 'не найден' : metadata.emissionOrderOrdinal}; RPC policies=${metadata.serviceStrongNames.size}/3${fetchFailures.length ? `; Ошибки загрузки: ${fetchFailures.slice(-4).join('; ')}` : ''}`;
+
+    if (!metadataIsComplete(metadata)) {
+      this.typeSignaturesResolved = false;
+      this.typeSignatureError = `${PRINT_PROTOCOL_ERROR} Не удалось загрузить параметры протокола из текущей сессии МойСклад.\n${this.typeSignatureDiagnostics}`;
+      throw new Error(this.typeSignatureError);
+    }
+
+    this.typeSignatureError = '';
     this.typeSignaturesResolved = true;
   }
 
