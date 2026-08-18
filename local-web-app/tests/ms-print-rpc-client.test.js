@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  MoySkladPrintRpcClient,
   DEFAULT_MODULE_BASE,
   DEFAULT_PERMUTATION,
   DEFAULT_TYPE_SIGNATURES,
@@ -101,6 +102,81 @@ test('compiled GWT metadata exposes service policy names and enum ordinals', () 
   assert.equal(extractServiceStrongName(cache, 'PriceTypePrintService'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
   assert.equal(extractEnumOrdinal(cache, 'Type', 'EmissionOrder'), 128);
   assert.equal(extractServiceStrongName(cache, 'UnknownService'), '');
+});
+
+function buildCompiledMetadataFixture() {
+  return [
+    "var signature='com.lognex.api.base.gwt.client.common.Type/603672630';",
+    "IoU='EmissionOrder';",
+    "function templateProxy(){d9i.call(this,TJ(),null,'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',serializer)}",
+    "function printProxy(){d9i.call(this,TJ(),null,'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',serializer)}",
+    "function taskProxy(){d9i.call(this,TJ(),null,'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',serializer)}",
+    "function init(){proxy(new gfk,new templateProxy,'MxTemplateService');proxy(new gfk,new printProxy,'PriceTypePrintService');proxy(new gfk,new taskProxy,'ExportImportService')}",
+    "var type=rYS(UnU,'Type',39,Y0i,eEk,dEk);",
+    'M7i(39,10,{39:1},RDk,SDk);',
+    'Utk=new SDk(IoU,128,metadata);',
+  ].join('');
+}
+
+function mockResponse(status, body = '') {
+  return {
+    ok: () => status >= 200 && status < 300,
+    status: () => status,
+    text: async () => body,
+  };
+}
+
+test('runtime metadata discovery recovers with GWT params captured from the logged-in page', async () => {
+  const requested = [];
+  const browserSession = {
+    getRequestContext: async () => ({
+      get: async (url) => {
+        requested.push(url);
+        if (url.includes('CURRENTCURRENTCURRENTCURRENTCURRENT12.cache.js')) {
+          return mockResponse(200, buildCompiledMetadataFixture());
+        }
+        return mockResponse(404);
+      },
+    }),
+    discoverGwtParams: async () => ({
+      rpcVersion: 'r1712',
+      moduleBase: 'https://cdn-static.moysklad.ru/app/cdn/r1712/',
+      permutation: 'CURRENTCURRENTCURRENTCURRENTCURRENT12',
+    }),
+  };
+  const client = new MoySkladPrintRpcClient(browserSession);
+
+  await client.resolveTypeSignatures();
+
+  assert.equal(client.rpcVersion, 'r1712');
+  assert.equal(client.permutation, 'CURRENTCURRENTCURRENTCURRENTCURRENT12');
+  assert.equal(client.typeSignatures.get('com.lognex.api.base.gwt.client.common.Type'), '603672630');
+  assert.equal(client.emissionOrderOrdinal, 128);
+  assert.deepEqual(Object.fromEntries(client.serviceStrongNames), {
+    template: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    print: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    task: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+  });
+  assert.equal(requested.some((url) => url.includes('CURRENTCURRENTCURRENTCURRENTCURRENT12.cache.js')), true);
+});
+
+test('runtime metadata discovery fails before printing when the protocol remains incomplete', async () => {
+  let discoveryCalls = 0;
+  const browserSession = {
+    getRequestContext: async () => ({ get: async () => mockResponse(404) }),
+    discoverGwtParams: async () => {
+      discoveryCalls += 1;
+      return null;
+    },
+  };
+  const client = new MoySkladPrintRpcClient(browserSession);
+
+  await assert.rejects(
+    client.resolveTypeSignatures(),
+    /Не удалось загрузить параметры протокола.*Сигнатур получено: 0/s,
+  );
+  await assert.rejects(client.resolveTypeSignatures(), /Не удалось загрузить параметры протокола/);
+  assert.equal(discoveryCalls, 1);
 });
 
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
