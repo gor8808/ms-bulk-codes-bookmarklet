@@ -104,6 +104,16 @@ test('compiled GWT metadata exposes service policy names and enum ordinals', () 
   assert.equal(extractServiceStrongName(cache, 'UnknownService'), '');
 });
 
+test('enum ordinal discovery does not depend on permutation-specific helper names', () => {
+  const windowsCache = [
+    "onU='EmissionOrder';",
+    "var type=bXS(AmU,'Type',39,N0i,IDk,HDk);",
+    'B7i(39,10,{39:1},TDk,uDk);',
+    'wtk=new uDk(onU,128,metadata);',
+  ].join('');
+  assert.equal(extractEnumOrdinal(windowsCache, 'Type', 'EmissionOrder'), 128);
+});
+
 function buildCompiledMetadataFixture() {
   return [
     "var signature='com.lognex.api.base.gwt.client.common.Type/603672630';",

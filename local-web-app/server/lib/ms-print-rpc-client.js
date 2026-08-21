@@ -125,13 +125,12 @@ function extractServiceStrongName(cacheText, serviceName) {
 
 function extractEnumOrdinal(cacheText, typeName, enumValue) {
   const source = String(cacheText || '');
-  const typeMatch = source.match(new RegExp(`rYS\\([^;]{0,240}?["']${escapeRegex(typeName)}["'],(\\d+),`));
+  // Compiler helper names differ between GWT permutations, so identify the enum
+  // registration by its serialized type name and class id instead of minified names.
+  const typeMatch = source.match(new RegExp(
+    `[A-Za-z_$][\\w$]*\\([^;]{0,240}?["']${escapeRegex(typeName)}["'],(\\d+),`,
+  ));
   if (!typeMatch) {
-    return null;
-  }
-
-  const classMatch = source.match(new RegExp(`M7i\\(${typeMatch[1]},[^;]{0,800}?([A-Za-z_$][\\w$]*)\\);`));
-  if (!classMatch) {
     return null;
   }
 
@@ -141,12 +140,18 @@ function extractEnumOrdinal(cacheText, typeName, enumValue) {
     valuePatterns.push(escapeRegex(aliasMatch[1]));
   }
 
-  for (const valuePattern of valuePatterns) {
-    const ordinalMatch = source.match(new RegExp(
-      `new\\s+${escapeRegex(classMatch[1])}\\(${valuePattern},(\\d+),`,
-    ));
-    if (ordinalMatch) {
-      return Number(ordinalMatch[1]);
+  const registrationPattern = new RegExp(
+    `[A-Za-z_$][\\w$]*\\(${typeMatch[1]},[^;]{0,1000}?,([A-Za-z_$][\\w$]*)\\);`,
+    'g',
+  );
+  for (const registration of source.matchAll(registrationPattern)) {
+    for (const valuePattern of valuePatterns) {
+      const ordinalMatch = source.match(new RegExp(
+        `new\\s+${escapeRegex(registration[1])}\\(${valuePattern},(\\d+),`,
+      ));
+      if (ordinalMatch) {
+        return Number(ordinalMatch[1]);
+      }
     }
   }
   return null;
