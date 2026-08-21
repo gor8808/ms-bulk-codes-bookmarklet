@@ -650,13 +650,19 @@ class MoySkladPrintRpcClient {
     if (!this.template) {
       await this.getEmissionOrderTemplates();
     }
+    // Runtime/signature recovery may invalidate the shared cache while postAny retries.
+    // Keep the template that was validated for this request stable across that retry.
+    const template = this.template;
+    if (!template) {
+      throw new Error(`${PRINT_PROTOCOL_ERROR} Не удалось загрузить шаблон печати.`);
+    }
     const text = await this.postAny(
       () => buildPrintServicePaths(this.rpcVersion),
       () => buildRequestDocumentPayload({
         documentId,
         positionId,
         quantity,
-        template: this.template,
+        template,
         moduleBase: this.moduleBase,
         permutation: this.serviceStrongNames.get('print') || this.permutation,
         refId: this.refId,

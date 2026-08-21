@@ -179,6 +179,44 @@ test('runtime metadata discovery fails before printing when the protocol remains
   assert.equal(discoveryCalls, 1);
 });
 
+test('requestPositionPdf keeps its template snapshot across a runtime retry', async () => {
+  const client = new MoySkladPrintRpcClient({}, { skipRuntimeDiscovery: true });
+  client.template = {
+    fileName: 'template.xml',
+    templateType: 'Template',
+    ownerLogin: 'admin@example.com',
+    templateToken: 'token',
+    templateName: 'template',
+    templateId: 'template-id',
+    accountId: 'account-id',
+  };
+  client.serviceStrongNames = new Map([['print', 'PRINTPOLICYPRINTPOLICYPRINTPOLICY12']]);
+  client.resolveRuntimeConfig = async (force = false) => {
+    if (force) client.template = null;
+  };
+  client.resolveTypeSignatures = async () => {};
+  let attempts = 0;
+  client.postOnce = async (_path, payload) => {
+    attempts += 1;
+    assert.equal(payload.includes('|template.xml|Template|admin@example.com|token|template|'), true);
+    if (attempts === 1) {
+      const error = new Error('endpoint moved');
+      error.status = 405;
+      throw error;
+    }
+    return '//OK["ASYNC:11111111-2222-3333-4444-555555555555"]';
+  };
+
+  const taskId = await client.requestPositionPdf({
+    documentId: 'document-id',
+    positionId: 'position-id',
+    quantity: 9,
+  });
+
+  assert.equal(taskId, '11111111-2222-3333-4444-555555555555');
+  assert.equal(attempts, 2);
+});
+
 test('buildTemplatePayload matches MoySklad GWT-RPC template request shape', () => {
   const payload = buildTemplatePayload(DEFAULT_MODULE_BASE);
   assert.equal(payload.startsWith(`7|0|6|${DEFAULT_MODULE_BASE}|${DEFAULT_PERMUTATION}|`), true);
