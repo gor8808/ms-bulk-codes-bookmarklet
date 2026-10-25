@@ -34,6 +34,7 @@ class PrintExportService {
       documents.push({
         id,
         name: document.name,
+        accountId: document.accountId || '',
         positions: positions.map((position) => ({
           ...position,
           fileName: buildPdfFileName(position),
@@ -82,6 +83,7 @@ class PrintExportService {
             documentId: document.id,
             positionId: position.id,
             quantity: position.quantity,
+            accountId: document.accountId,
           });
           logPrint(`task accepted for "${fileName}": ${taskId}`);
           onProgress({

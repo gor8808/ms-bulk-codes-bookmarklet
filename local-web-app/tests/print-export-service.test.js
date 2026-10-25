@@ -89,8 +89,8 @@ test('PrintExportService run prints every position, dedupes ZIP names, and repor
   assert.equal(result.ok, true);
   assert.equal(result.result.pdfCreated, 2);
   assert.deepEqual(calls.requested, [
-    { documentId: DOCUMENT_ID, positionId: 'pos-1', quantity: 45 },
-    { documentId: DOCUMENT_ID, positionId: 'pos-2', quantity: 12 },
+    { documentId: DOCUMENT_ID, positionId: 'pos-1', quantity: 45, accountId: '' },
+    { documentId: DOCUMENT_ID, positionId: 'pos-2', quantity: 12, accountId: '' },
   ]);
   assert.deepEqual(calls.entries.map((entry) => entry.name), [
     'Bdm2-55d БЕЛЫЙ р.104(36-48) - 45шт.pdf',
@@ -121,4 +121,31 @@ test('PrintExportService run records failed positions and returns error when no 
   assert.equal(result.error, 'Не создан ни один PDF. Первая ошибка: RPC changed');
   assert.equal(result.result.failed.length, 2);
   assert.equal(result.result.failed[0].reason, 'RPC changed');
+});
+
+test('PrintExportService passes the document account id to every print request', async () => {
+  const { service, calls } = buildService({
+    msClient: {
+      async getEmissionOrder(_, id) {
+        return { id, name: '00468', accountId: '22920a00-185d-11ec-0a80-04c00001a91c' };
+      },
+      async getEmissionOrderPositions() {
+        return [
+          { id: 'pos-1', quantity: 45, productName: 'A', article: 'a' },
+          { id: 'pos-2', quantity: 12, productName: 'B', article: 'b' },
+        ];
+      },
+    },
+  });
+
+  const result = await service.run({
+    urls: [`https://online.moysklad.ru/app/#emissionorder/edit?id=${DOCUMENT_ID}`],
+    settings: { apiToken: 'token' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.requested.map((call) => call.accountId), [
+    '22920a00-185d-11ec-0a80-04c00001a91c',
+    '22920a00-185d-11ec-0a80-04c00001a91c',
+  ]);
 });

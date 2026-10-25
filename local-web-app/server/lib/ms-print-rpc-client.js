@@ -651,16 +651,19 @@ class MoySkladPrintRpcClient {
     return text;
   }
 
-  async requestPositionPdf({ documentId, positionId, quantity }) {
+  async requestPositionPdf({ documentId, positionId, quantity, accountId }) {
     if (!this.template) {
       await this.getEmissionOrderTemplates();
     }
     // Runtime/signature recovery may invalidate the shared cache while postAny retries.
     // Keep the template that was validated for this request stable across that retry.
-    const template = this.template;
-    if (!template) {
+    // The account id from the REST API is authoritative: the template response has
+    // several UUIDs after the UUID class marker and their order differs between builds.
+    const cached = this.template;
+    if (!cached) {
       throw new Error(`${PRINT_PROTOCOL_ERROR} Не удалось загрузить шаблон печати.`);
     }
+    const template = accountId ? { ...cached, accountId } : cached;
     const text = await this.postAny(
       () => buildPrintServicePaths(this.rpcVersion),
       () => buildRequestDocumentPayload({

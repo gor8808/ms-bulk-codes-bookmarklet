@@ -6,6 +6,7 @@ const {
   getOrganizations,
   findAssortmentByBarcode,
   createEmissionOrder,
+  getEmissionOrder,
 } = require('../server/lib/ms-api');
 
 test('buildAuthHeader supports Bearer token and Basic login password auth', () => {
@@ -91,4 +92,23 @@ test('MoySklad non-2xx responses throw MsApiError with status and message', asyn
       return true;
     },
   );
+});
+
+test('getEmissionOrder exposes the account id used by MoySklad print requests', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, 'https://api.moysklad.ru/api/remap/1.2/entity/emissionorder/order-id');
+    return new Response(JSON.stringify({
+      id: 'order-id',
+      name: '00658',
+      accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+      meta: { href: 'order-href' },
+    }), { status: 200 });
+  });
+
+  assert.deepEqual(await getEmissionOrder('token', 'order-id'), {
+    id: 'order-id',
+    name: '00658',
+    href: 'order-href',
+    accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+  });
 });
