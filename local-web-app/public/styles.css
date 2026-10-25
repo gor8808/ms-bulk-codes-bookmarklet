@@ -473,3 +473,17 @@ button:disabled {
     text-align: left;
   }
 }
+
+.report-settings {
+  margin: 0 0 16px;
+}
+
+.report-settings summary {
+  cursor: pointer;
+  color: #465466;
+  font-size: 14px;
+}
+
+.report-settings[open] summary {
+  margin-bottom: 8px;
+}

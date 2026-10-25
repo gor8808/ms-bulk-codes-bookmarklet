@@ -16,11 +16,13 @@ const { SettingsFileStore } = require('./server/lib/settings-file-store');
 const { BrowserSessionService } = require('./server/lib/browser-session-service');
 const { MoySkladPrintRpcClient } = require('./server/lib/ms-print-rpc-client');
 const { PrintExportService, createDefaultZipWriter } = require('./server/lib/print-export-service');
+const { ReportConfigStore, ReportSender } = require('./server/lib/error-report');
 const { Updater } = require('./server/updater');
 
 const PORT = Number(process.env.PORT || 5177);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SETTINGS_PATH = path.join(__dirname, '.env', 'settings.json');
+const REPORT_URL_PATH = path.join(__dirname, '.env', 'report-url.txt');
 
 function normalizeError(error) {
   return error && error.message ? error.message : String(error);
@@ -38,10 +40,17 @@ function createApp(options = {}) {
   const settingsStore = options.settingsStore || new SettingsFileStore(SETTINGS_PATH);
   const browserSession = options.browserSession || new BrowserSessionService({ profileDir: path.join(__dirname, '.browser-profile') });
   const printRpcClient = options.printRpcClient || new MoySkladPrintRpcClient(browserSession);
+  const reportConfigStore = options.reportConfigStore || new ReportConfigStore(REPORT_URL_PATH);
+  const reporter = options.reporter || new ReportSender({
+    configStore: reportConfigStore,
+    getAppVersion: () => (updater && typeof updater.getStatus === 'function' ? updater.getStatus().current : 'unknown'),
+    log: (message) => console.log(`[report] ${new Date().toISOString()} ${message}`),
+  });
   const printRunManager = options.printRunManager || new RunManager(new PrintExportService({
     msClient,
     rpcClient: printRpcClient,
     zipWriter: createDefaultZipWriter(__dirname),
+    reporter,
   }));
   const printExportService = printRunManager.service;
   const updater = options.updater || new Updater({
@@ -98,6 +107,26 @@ function createApp(options = {}) {
       sendJson(res, 200, { ok: true, loggedIn: await browserSession.isLoggedIn() });
     } catch (error) {
       sendJson(res, 500, { ok: false, error: normalizeError(error) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/report-config') {
+    try {
+      sendJson(res, 200, { ok: true, ...await reportConfigStore.describe() });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: normalizeError(error) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/report-config') {
+    try {
+      const body = await readJson(req);
+      await reportConfigStore.save(body.url);
+      sendJson(res, 200, { ok: true, ...await reportConfigStore.describe() });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: normalizeError(error) });
     }
     return;
   }

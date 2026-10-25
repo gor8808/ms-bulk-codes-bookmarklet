@@ -71,6 +71,15 @@
       return postJson('/api/settings', { settings });
     },
 
+    async getReportConfig() {
+      const response = await fetch('/api/report-config');
+      return readJsonResponse(response);
+    },
+
+    async saveReportConfig(url) {
+      return postJson('/api/report-config', { url });
+    },
+
     async fetchOrganizations(settings) {
       return postJson('/api/organizations', { settings });
     },

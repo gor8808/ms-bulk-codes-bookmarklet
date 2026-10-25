@@ -380,3 +380,31 @@ test('describeGwtException surfaces the MoySklad invalid-signature reason', () =
   const described = describeGwtException(body);
   assert.equal(described.includes('Invalid type signature for com.lognex.api.base.gwt.client.common.Type'), true);
 });
+
+test('requestPositionPdf prefers the REST account id over the template response parse', async () => {
+  // r1742 template responses list another UUID before the account id after the UUID class marker.
+  const templateResponse = '//OK["java.util.UUID/2940008275","dfb99375-263b-3d70-9af0-0c9efc3347ee","22920a00-185d-11ec-0a80-04c00001a91c","Код маркировки и ШК.xml","Template","admin@example.com","token-1","Код маркировки и ШК","template-id","EmissionOrder"]';
+  assert.equal(parseTemplateMetadata(templateResponse).accountId, 'dfb99375-263b-3d70-9af0-0c9efc3347ee');
+
+  const client = new MoySkladPrintRpcClient({}, { skipRuntimeDiscovery: true });
+  client.template = parseTemplateMetadata(templateResponse);
+  client.resolveRuntimeConfig = async () => {};
+  client.resolveTypeSignatures = async () => {};
+  const payloads = [];
+  client.postOnce = async (_path, payload) => {
+    payloads.push(payload);
+    return '//OK[1,["ASYNC:11111111-2222-3333-4444-555555555555"],0,7]';
+  };
+
+  await client.requestPositionPdf({
+    documentId: 'document-id',
+    positionId: 'position-id',
+    quantity: 9,
+    accountId: '22920a00-185d-11ec-0a80-04c00001a91c',
+  });
+  await client.requestPositionPdf({ documentId: 'document-id', positionId: 'position-id', quantity: 9 });
+
+  assert.equal(payloads[0].includes('|java.util.UUID/2940008275|22920a00-185d-11ec-0a80-04c00001a91c|'), true);
+  assert.equal(payloads[1].includes('|java.util.UUID/2940008275|dfb99375-263b-3d70-9af0-0c9efc3347ee|'), true);
+  assert.equal(client.template.accountId, 'dfb99375-263b-3d70-9af0-0c9efc3347ee');
+});

@@ -477,6 +477,27 @@ class MoySkladPrintRpcClient {
     this.typeSignaturesResolved = true;
   }
 
+  // Non-sensitive snapshot of the runtime contract, attached to automatic error reports.
+  getReportContext() {
+    const signatureDrift = [];
+    for (const [className, expected] of Object.entries(DEFAULT_TYPE_SIGNATURES)) {
+      const discovered = this.typeSignatures.get(className);
+      if (discovered && discovered !== expected) {
+        signatureDrift.push(`${className}: ${expected} -> ${discovered}`);
+      }
+    }
+    return {
+      rpcVersion: this.rpcVersion,
+      moduleBase: this.moduleBase,
+      permutation: this.permutation,
+      serviceStrongNames: Object.fromEntries(this.serviceStrongNames),
+      typeSignatureCount: this.typeSignatures.size,
+      emissionOrderOrdinal: this.emissionOrderOrdinal,
+      signatureDrift,
+      typeSignatureDiagnostics: this.typeSignatureDiagnostics,
+    };
+  }
+
   isSignatureMismatch(error) {
     const haystack = error ? `${error.responseText || ''} ${error.message || ''}` : '';
     return Boolean(error && error.gwtException && /Invalid type signature|IncompatibleRemoteServiceException/i.test(haystack));
@@ -541,6 +562,7 @@ class MoySkladPrintRpcClient {
 
   async postOnce(path, payload) {
     const request = await this.browserSession.getRequestContext();
+    const body = applySignatureOverrides(payload, this.typeSignatures);
     const response = await request.post(`${ONLINE_BASE}${path}`, {
       headers: {
         Accept: '*/*',
@@ -548,13 +570,14 @@ class MoySkladPrintRpcClient {
         'X-GWT-Module-Base': this.moduleBase,
         'X-GWT-Permutation': this.permutation,
       },
-      data: applySignatureOverrides(payload, this.typeSignatures),
+      data: body,
     });
     const text = await response.text();
     if (!response.ok()) {
       const error = new Error(`${PRINT_PROTOCOL_ERROR} ${path} HTTP ${response.status()}: ${text.slice(0, 200)}`);
       error.status = response.status();
       error.path = path;
+      error.request = { path, body };
       throw error;
     }
     // GWT returns server-side exceptions as an HTTP-200 body prefixed with `//EX`.
@@ -563,6 +586,7 @@ class MoySkladPrintRpcClient {
       error.gwtException = true;
       error.path = path;
       error.responseText = text;
+      error.request = { path, body };
       throw error;
     }
     return text;
@@ -651,16 +675,19 @@ class MoySkladPrintRpcClient {
     return text;
   }
 
-  async requestPositionPdf({ documentId, positionId, quantity }) {
+  async requestPositionPdf({ documentId, positionId, quantity, accountId }) {
     if (!this.template) {
       await this.getEmissionOrderTemplates();
     }
     // Runtime/signature recovery may invalidate the shared cache while postAny retries.
     // Keep the template that was validated for this request stable across that retry.
-    const template = this.template;
-    if (!template) {
+    // The account id from the REST API is authoritative: the template response has
+    // several UUIDs after the UUID class marker and their order differs between builds.
+    const cached = this.template;
+    if (!cached) {
       throw new Error(`${PRINT_PROTOCOL_ERROR} Не удалось загрузить шаблон печати.`);
     }
+    const template = accountId ? { ...cached, accountId } : cached;
     const text = await this.postAny(
       () => buildPrintServicePaths(this.rpcVersion),
       () => buildRequestDocumentPayload({

@@ -96,6 +96,10 @@
     printUrls: document.getElementById('printUrls'),
     printUrlsError: document.getElementById('printUrlsError'),
     printValidation: document.getElementById('printValidation'),
+    reportUrl: document.getElementById('reportUrl'),
+    reportUrlError: document.getElementById('reportUrlError'),
+    saveReportBtn: document.getElementById('saveReportBtn'),
+    reportStatus: document.getElementById('reportStatus'),
     validatePrintBtn: document.getElementById('validatePrintBtn'),
     startPrintBtn: document.getElementById('startPrintBtn'),
     printProgressDocs: document.getElementById('printProgressDocs'),
@@ -385,6 +389,33 @@
     }
   }
 
+  function renderReportConfig(config) {
+    els.reportStatus.textContent = config.configured
+      ? `Отправка отчётов включена${config.host ? ` (${config.host})` : ''}`
+      : 'Отправка отчётов выключена';
+  }
+
+  async function loadReportConfig() {
+    try {
+      renderReportConfig(await window.ApiClient.getReportConfig());
+    } catch (_) {
+      els.reportStatus.textContent = '';
+    }
+  }
+
+  async function saveReportConfig() {
+    els.reportUrlError.textContent = '';
+    setBusy(els.saveReportBtn, true, 'Сохранение...');
+    try {
+      renderReportConfig(await window.ApiClient.saveReportConfig(els.reportUrl.value));
+      els.reportUrl.value = '';
+    } catch (error) {
+      els.reportUrlError.textContent = error.message;
+    } finally {
+      setBusy(els.saveReportBtn, false);
+    }
+  }
+
   async function loginBrowser() {
     els.browserLoginStatus.textContent = '';
     setBusy(els.browserLoginBtn, true, 'Ожидание входа...');
@@ -671,6 +702,8 @@
       checkBrowserStatus();
     });
     els.browserLoginBtn.addEventListener('click', loginBrowser);
+    els.saveReportBtn.addEventListener('click', saveReportConfig);
+    loadReportConfig();
     els.printUrls.addEventListener('input', invalidatePrintValidation);
     els.validatePrintBtn.addEventListener('click', validatePrintDocuments);
     els.startPrintBtn.addEventListener('click', startPrintRun);

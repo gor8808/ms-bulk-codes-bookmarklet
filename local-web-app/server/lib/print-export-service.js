@@ -12,10 +12,28 @@ function logPrint(message) {
 }
 
 class PrintExportService {
-  constructor({ msClient, rpcClient, zipWriter }) {
+  constructor({ msClient, rpcClient, zipWriter, reporter = null }) {
     this.msClient = msClient;
     this.rpcClient = rpcClient;
     this.zipWriter = zipWriter;
+    this.reporter = reporter;
+  }
+
+  // Fire-and-forget: the sender never throws and must not delay the run result.
+  reportFailures({ failed, totalPositions, printed, settings, requests = new Map(), outcomes = [] }) {
+    const rpcFailures = failed.filter((row) => row.stage).map((row) => ({ ...row, request: requests.get(row) }));
+    if (!this.reporter || rpcFailures.length === 0) {
+      return;
+    }
+    const context = typeof this.rpcClient.getReportContext === 'function' ? this.rpcClient.getReportContext() : {};
+    const secrets = [settings && settings.apiToken, settings && settings.login, settings && settings.password];
+    Promise.resolve(this.reporter.send({
+      failures: rpcFailures,
+      totals: { positions: totalPositions, created: printed },
+      context,
+      secrets,
+      outcomes,
+    })).catch(() => {});
   }
 
   async validate({ urls, settings }) {
@@ -34,6 +52,7 @@ class PrintExportService {
       documents.push({
         id,
         name: document.name,
+        accountId: document.accountId || '',
         positions: positions.map((position) => ({
           ...position,
           fileName: buildPdfFileName(position),
@@ -44,14 +63,38 @@ class PrintExportService {
     return { ok: true, documents };
   }
 
-  async run({ urls, settings }, hooks = {}) {
+  async run(input, hooks = {}) {
+    const state = { stage: 'validate', totalPositions: 0, printed: 0 };
+    try {
+      return await this.runInternal(input, hooks, state);
+    } catch (error) {
+      this.reportFailures({
+        failed: [{
+          reason: normalizeError(error),
+          stage: state.stage,
+          status: error && (error.status || error.statusCode),
+          gwt: false,
+        }],
+        totalPositions: state.totalPositions,
+        printed: state.printed,
+        settings: input && input.settings,
+      });
+      throw error;
+    }
+  }
+
+  async runInternal({ urls, settings }, hooks, state) {
     const onProgress = hooks.onProgress || (() => {});
     const validated = await this.validate({ urls, settings });
+    state.stage = 'run';
     const documents = validated.documents;
     const totalDocuments = documents.length;
     const totalPositions = documents.reduce((sum, doc) => sum + doc.positions.length, 0);
+    state.totalPositions = totalPositions;
     const entries = [];
     const failed = [];
+    const requests = new Map();
+    const outcomes = [];
     const usedNames = new Set();
     let printed = 0;
 
@@ -61,10 +104,12 @@ class PrintExportService {
       for (const position of document.positions) {
         if (hooks.isStopped && hooks.isStopped()) {
           failed.push({ documentName: document.name, positionId: position.id, reason: 'Остановлено пользователем' });
+          outcomes.push({ stopped: true });
           continue;
         }
 
         let fileName = dedupeFileName(position.fileName, usedNames);
+        let stage = 'request';
         try {
           onProgress({
             step: 'print',
@@ -82,6 +127,7 @@ class PrintExportService {
             documentId: document.id,
             positionId: position.id,
             quantity: position.quantity,
+            accountId: document.accountId,
           });
           logPrint(`task accepted for "${fileName}": ${taskId}`);
           onProgress({
@@ -96,6 +142,7 @@ class PrintExportService {
             failed: failed.length,
             waitSeconds: 0,
           });
+          stage = 'poll';
           const downloadUrl = await this.rpcClient.pollPrintTask(taskId, {
             onHeartbeat: ({ elapsedMs }) => {
               const waitSeconds = Math.floor(elapsedMs / 1000);
@@ -116,18 +163,29 @@ class PrintExportService {
               }
             },
           });
+          stage = 'download';
           const pdf = await this.rpcClient.downloadPdf(downloadUrl);
           entries.push({ name: fileName, data: pdf });
           printed += 1;
+          state.printed = printed;
+          outcomes.push(null);
           logPrint(`downloaded PDF for "${fileName}"`);
         } catch (error) {
           logPrint(`failed "${fileName}": ${normalizeError(error)}`);
-          failed.push({
+          const row = {
             documentName: document.name,
             positionId: position.id,
             fileName,
             reason: normalizeError(error),
-          });
+            stage,
+            status: error && error.status,
+            gwt: Boolean(error && error.gwtException),
+          };
+          failed.push(row);
+          outcomes.push(row);
+          if (error && error.request) {
+            requests.set(row, error.request);
+          }
         }
 
         onProgress({
@@ -144,11 +202,14 @@ class PrintExportService {
       }
     }
 
+    this.reportFailures({ failed, totalPositions, printed, settings, requests, outcomes });
+
     if (entries.length === 0) {
       const firstReason = failed[0] && failed[0].reason ? ` Первая ошибка: ${failed[0].reason}` : '';
       return { ok: false, error: `Не создан ни один PDF.${firstReason}`, result: { pdfCreated: 0, failed } };
     }
 
+    state.stage = 'zip';
     const zip = await this.zipWriter.write(entries);
     return {
       ok: true,
