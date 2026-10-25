@@ -13,6 +13,7 @@
       <nav class="tabs" aria-label="Рабочие процессы">
         <button id="createTabBtn" type="button" class="tab-button active">Создать заказы</button>
         <button id="printTabBtn" type="button" class="tab-button">Печать кодов</button>
+        <button id="kizTabBtn" type="button" class="tab-button">Импорт в отгрузку</button>
       </nav>
 
       <section id="inputView" class="view">
@@ -146,6 +147,70 @@
         </section>
       </section>
 
+      <section id="kizInputView" class="view hidden">
+        <div class="page-head">
+          <div>
+            <h1>Импорт в отгрузку</h1>
+            <p class="hint">Загрузите файл результата сборки WB с колонкой «КИЗ». Приложение посчитает товары по штрихкоду из каждого КИЗ и подготовит CSV для импорта позиций в отгрузку МойСклад. Файл обрабатывается только на этом компьютере.</p>
+          </div>
+        </div>
+
+        <section id="kizDropZone" class="upload-panel drop-zone">
+          <label class="field">
+            <span>Файл XLSX</span>
+            <div class="file-row">
+              <button id="kizChooseFileBtn" type="button" class="button-secondary">Выбрать файл</button>
+              <div id="kizFileName" class="file-name">Файл не выбран</div>
+            </div>
+            <input id="kizFileInput" class="hidden" type="file" accept=".xlsx,.xls">
+          </label>
+
+          <div id="kizSummary" class="kiz-summary hidden"></div>
+          <div id="kizFileError" class="field-error"></div>
+
+          <div id="kizPreview" class="kiz-preview hidden">
+            <table class="kiz-table">
+              <thead>
+                <tr><th>Штрихкод GTIN</th><th>Штрихкод EAN13</th><th>Количество</th></tr>
+              </thead>
+              <tbody id="kizPreviewBody"></tbody>
+            </table>
+          </div>
+
+          <div class="actions">
+            <button id="kizDownloadBtn" type="button" disabled>Скачать CSV</button>
+          </div>
+        </section>
+
+        <section class="kiz-guide">
+          <h2>Как импортировать CSV в отгрузку МойСклад</h2>
+          <p class="hint">Импорт добавляет товары и количество. Сами коды маркировки (КИЗ) к позициям при этом не прикрепляются.</p>
+          <ol class="kiz-steps">
+            <li>
+              <p>Откройте отгрузку и сохраните её. Под таблицей товаров нажмите <b>Импорт → Импортировать</b>.</p>
+              <img src="img/kiz-import/step-1-menu.png" width="361" alt="Меню Импорт под таблицей товаров" loading="lazy">
+            </li>
+            <li>
+              <p>Нажмите <b>Загрузить</b> и выберите скачанный CSV.</p>
+              <img src="img/kiz-import/step-2-upload.png" width="784" alt="Кнопка Загрузить" loading="lazy">
+            </li>
+            <li>
+              <p>Выберите <b>Кодировка: UTF-8</b> и <b>Искать: Автоматически</b>. Снимите обе галочки: «обновить информацию по существующим товарам» и «создать новые товары» — так карточки товаров не изменятся.</p>
+              <img src="img/kiz-import/step-3-options.png" width="676" alt="Кодировка, поиск и галочки" loading="lazy">
+            </li>
+            <li>
+              <p>Проверьте столбцы: <b>Штрихкод GTIN</b>, <b>Штрихкод EAN13</b>, <b>Количество</b>. Затем нажмите зелёную кнопку <b>Импорт</b> вверху страницы.</p>
+              <img src="img/kiz-import/step-4-columns.png" width="676" alt="Сопоставление столбцов" loading="lazy">
+              <img src="img/kiz-import/step-4-button.png" width="428" alt="Кнопка Импорт" loading="lazy">
+            </li>
+            <li>
+              <p>Дождитесь надписи «Задача завершена», нажмите <b>Закрыть</b> и откройте отгрузку снова — товары появятся с нужным количеством. Если какой-то товар не добавился, нажмите «Посмотреть результаты»: скорее всего, в МойСклад нет товара с таким штрихкодом.</p>
+              <img src="img/kiz-import/step-5-result.png" width="552" alt="Импорт завершён" loading="lazy">
+            </li>
+          </ol>
+        </section>
+      </section>
+
       <section id="printProgressView" class="view hidden">
         <h1>Печать кодов</h1>
         <div id="printProgressDocs" class="line">Документы: 0 из 0</div>
@@ -198,6 +263,7 @@
     <script src="vendor/xlsx.min.js"></script>
     <script src="lib/xlsx-parser-core.js"></script>
     <script src="lib/xlsx-parser.js"></script>
+    <script src="lib/kiz-import-core.js"></script>
     <script src="lib/settings-store.js"></script>
     <script src="lib/api-client.js"></script>
     <script src="app.js"></script>

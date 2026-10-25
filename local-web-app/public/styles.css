@@ -303,6 +303,75 @@ button:disabled {
   background: #fff8f0;
 }
 
+.kiz-summary {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #344054;
+  font-size: 13px;
+  white-space: pre-line;
+}
+
+.kiz-summary.has-skipped {
+  background: #fff8f0;
+}
+
+.kiz-preview {
+  max-height: 260px;
+  margin-bottom: 12px;
+  overflow: auto;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.kiz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.45 Consolas, monospace;
+}
+
+.kiz-table th,
+.kiz-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid #e4e7ec;
+  text-align: left;
+}
+
+.kiz-table th {
+  position: sticky;
+  top: 0;
+  background: #f0f4ff;
+  font-family: Arial, sans-serif;
+}
+
+.kiz-guide h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.kiz-steps {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.kiz-steps li {
+  margin-bottom: 18px;
+}
+
+.kiz-steps p {
+  margin: 0 0 8px;
+}
+
+.kiz-steps img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+}
+
 .inline-status {
   align-self: center;
   color: #067647;
