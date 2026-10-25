@@ -477,6 +477,27 @@ class MoySkladPrintRpcClient {
     this.typeSignaturesResolved = true;
   }
 
+  // Non-sensitive snapshot of the runtime contract, attached to automatic error reports.
+  getReportContext() {
+    const signatureDrift = [];
+    for (const [className, expected] of Object.entries(DEFAULT_TYPE_SIGNATURES)) {
+      const discovered = this.typeSignatures.get(className);
+      if (discovered && discovered !== expected) {
+        signatureDrift.push(`${className}: ${expected} -> ${discovered}`);
+      }
+    }
+    return {
+      rpcVersion: this.rpcVersion,
+      moduleBase: this.moduleBase,
+      permutation: this.permutation,
+      serviceStrongNames: Object.fromEntries(this.serviceStrongNames),
+      typeSignatureCount: this.typeSignatures.size,
+      emissionOrderOrdinal: this.emissionOrderOrdinal,
+      signatureDrift,
+      typeSignatureDiagnostics: this.typeSignatureDiagnostics,
+    };
+  }
+
   isSignatureMismatch(error) {
     const haystack = error ? `${error.responseText || ''} ${error.message || ''}` : '';
     return Boolean(error && error.gwtException && /Invalid type signature|IncompatibleRemoteServiceException/i.test(haystack));

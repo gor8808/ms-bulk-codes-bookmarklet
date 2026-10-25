@@ -20,7 +20,7 @@ class RunManager {
 
     this.runs.set(runId, run);
     this.process(run);
-    setTimeout(() => this.prune(runId), 30 * 60 * 1000);
+    setTimeout(() => this.prune(runId), 30 * 60 * 1000).unref();
     return runId;
   }
 

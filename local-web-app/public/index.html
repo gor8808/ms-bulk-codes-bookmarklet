@@ -123,6 +123,20 @@
             <div id="printUrlsError" class="field-error"></div>
           </label>
 
+          <details class="report-settings">
+            <summary>Отчёты об ошибках (необязательно)</summary>
+            <p class="hint">Если адрес задан, при ошибках печати приложение автоматически отправляет разработчику отчёт без токенов, логинов, названий товаров и ID. Адрес выдаёт администратор.</p>
+            <label class="field">
+              <span>Адрес для отчётов</span>
+              <input id="reportUrl" type="password" autocomplete="off" placeholder="Оставьте пустым, чтобы отключить">
+              <div id="reportUrlError" class="field-error"></div>
+            </label>
+            <div class="actions-inline">
+              <button id="saveReportBtn" type="button" class="button-secondary">Сохранить</button>
+              <span id="reportStatus" class="inline-status"></span>
+            </div>
+          </details>
+
           <div id="printValidation" class="parse-summary hidden"></div>
 
           <div class="actions actions-summary">

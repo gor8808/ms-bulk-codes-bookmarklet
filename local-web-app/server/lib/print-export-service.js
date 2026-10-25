@@ -12,10 +12,27 @@ function logPrint(message) {
 }
 
 class PrintExportService {
-  constructor({ msClient, rpcClient, zipWriter }) {
+  constructor({ msClient, rpcClient, zipWriter, reporter = null }) {
     this.msClient = msClient;
     this.rpcClient = rpcClient;
     this.zipWriter = zipWriter;
+    this.reporter = reporter;
+  }
+
+  // Fire-and-forget: the sender never throws and must not delay the run result.
+  reportFailures({ failed, totalPositions, printed, settings }) {
+    const rpcFailures = failed.filter((row) => row.stage);
+    if (!this.reporter || rpcFailures.length === 0) {
+      return;
+    }
+    const context = typeof this.rpcClient.getReportContext === 'function' ? this.rpcClient.getReportContext() : {};
+    const secrets = [settings && settings.apiToken, settings && settings.login, settings && settings.password];
+    Promise.resolve(this.reporter.send({
+      failures: rpcFailures,
+      totals: { positions: totalPositions, created: printed },
+      context,
+      secrets,
+    })).catch(() => {});
   }
 
   async validate({ urls, settings }) {
@@ -66,6 +83,7 @@ class PrintExportService {
         }
 
         let fileName = dedupeFileName(position.fileName, usedNames);
+        let stage = 'request';
         try {
           onProgress({
             step: 'print',
@@ -98,6 +116,7 @@ class PrintExportService {
             failed: failed.length,
             waitSeconds: 0,
           });
+          stage = 'poll';
           const downloadUrl = await this.rpcClient.pollPrintTask(taskId, {
             onHeartbeat: ({ elapsedMs }) => {
               const waitSeconds = Math.floor(elapsedMs / 1000);
@@ -118,6 +137,7 @@ class PrintExportService {
               }
             },
           });
+          stage = 'download';
           const pdf = await this.rpcClient.downloadPdf(downloadUrl);
           entries.push({ name: fileName, data: pdf });
           printed += 1;
@@ -129,6 +149,9 @@ class PrintExportService {
             positionId: position.id,
             fileName,
             reason: normalizeError(error),
+            stage,
+            status: error && error.status,
+            gwt: Boolean(error && error.gwtException),
           });
         }
 
@@ -145,6 +168,8 @@ class PrintExportService {
         });
       }
     }
+
+    this.reportFailures({ failed, totalPositions, printed, settings });
 
     if (entries.length === 0) {
       const firstReason = failed[0] && failed[0].reason ? ` Первая ошибка: ${failed[0].reason}` : '';

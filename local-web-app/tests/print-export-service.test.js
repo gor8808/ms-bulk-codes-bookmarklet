@@ -149,3 +149,53 @@ test('PrintExportService passes the document account id to every print request',
     '22920a00-185d-11ec-0a80-04c00001a91c',
   ]);
 });
+
+test('PrintExportService reports rpc failures with their stage but not user stops', async () => {
+  const sent = [];
+  const reporter = { async send(payload) { sent.push(payload); } };
+  const { service } = buildService({
+    rpcClient: {
+      async requestPositionPdf(input) {
+        if (input.positionId === 'pos-2') {
+          const error = new Error('HTTP 500');
+          error.status = 500;
+          throw error;
+        }
+        return `task-${input.positionId}`;
+      },
+      async pollPrintTask(taskId) {
+        return `https://print-prod.moysklad.ru/temp/${taskId}.pdf`;
+      },
+      async downloadPdf() {
+        return Buffer.from('PDF');
+      },
+      getReportContext() {
+        return { rpcVersion: 'r1742' };
+      },
+    },
+  });
+  service.reporter = reporter;
+
+  const result = await service.run({
+    urls: [`https://online.moysklad.ru/app/#emissionorder/edit?id=${DOCUMENT_ID}`],
+    settings: { apiToken: 'tok-1234', login: 'user@example.com' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].totals, { positions: 2, created: 1 });
+  assert.deepEqual(sent[0].context, { rpcVersion: 'r1742' });
+  assert.deepEqual(sent[0].failures.map((row) => [row.stage, row.status]), [['request', 500]]);
+  assert.deepEqual(sent[0].secrets, ['tok-1234', 'user@example.com', undefined]);
+});
+
+test('PrintExportService does not call the reporter when every position succeeds', async () => {
+  let called = false;
+  const { service } = buildService();
+  service.reporter = { async send() { called = true; } };
+  await service.run({
+    urls: [`https://online.moysklad.ru/app/#emissionorder/edit?id=${DOCUMENT_ID}`],
+    settings: { apiToken: 'token' },
+  });
+  assert.equal(called, false);
+});
