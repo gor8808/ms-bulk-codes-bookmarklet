@@ -4,6 +4,14 @@ const path = require('node:path');
 
 const MAX_SAMPLE_LENGTH = 1200;
 const MAX_PAGE_LINES = 12;
+const MAX_SAMPLES_PER_GROUP = 3;
+const MAX_TIMELINE_RUNS = 60;
+const MAX_SKELETON_LENGTH = 4000;
+const SKIPPED_KINDS = new Set(['not-logged-in', 'auth']);
+const KEPT_PLAIN_STRINGS = new Set([
+  'I', 'value', 'requestDocument', 'getTask', 'getTemplate', 'EmissionOrder', 'Template',
+  'testPrintFilter', 'printAllCodesFilter',
+]);
 const PAGE_DIAGNOSTICS_MARKER = 'Диагностика страницы МойСклад:';
 const SEND_TIMEOUT_MS = 8000;
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -67,6 +75,7 @@ function trimPageDiagnostics(message) {
 function classifyFailure(failure) {
   const text = String(failure.reason || '');
   if (/Войдите в МойСклад/.test(text)) return 'not-logged-in';
+  if (/Неверный токен/.test(text) || [401, 403].includes(failure.status) || [401, 403].includes(failure.statusCode)) return 'auth';
   if (/Invalid type signature|IncompatibleRemoteService/i.test(text)) return 'signature-mismatch';
   if (/Не удалось загрузить параметры протокола/.test(text)) return 'protocol-discovery';
   if (/Шаблон ".*" не найден/.test(text)) return 'template-missing';
@@ -80,17 +89,70 @@ function classifyFailure(failure) {
   return 'other';
 }
 
-function buildReport({ failures, totals, context, appVersion, secrets }) {
+// Keeps the shape of a GWT-RPC request body (class names, signatures, strong names,
+// token layout) and masks everything account specific, so it can be diffed against a
+// request captured from MoySklad's own UI.
+function skeletonizeGwtBody(body, redact) {
+  const tokens = String(body || '').split('|');
+  const count = Number(tokens[2]);
+  if (tokens.length < 4 || tokens[0] !== '7' || !Number.isInteger(count) || count < 0 || tokens.length < 3 + count) {
+    return '<unparsed request body>';
+  }
+
+  const maskString = (value) => {
+    if (value === '' || /^https:\/\/cdn-static\.moysklad\.ru\//.test(value)) return value;
+    if (/^[0-9A-F]{32}$/.test(value) || KEPT_PLAIN_STRINGS.has(value)) return value;
+    if (/^(?:\[+L)?[A-Za-z_$][\w$]*(?:\.[\w$]+)+;?(?:\/\d+)?$/.test(value) && !value.includes('@')) return value;
+    const masked = redact(value);
+    return masked === value ? `<str:${value.length}>` : masked;
+  };
+  const maskToken = (value) => (/^-?\d+(?:\.\d+)?$/.test(value) || value.length <= 3 ? value : `<b64:${value.length}>`);
+
+  const table = tokens.slice(3, 3 + count).map(maskString);
+  const rest = tokens.slice(3 + count).map(maskToken);
+  return [...tokens.slice(0, 3), ...table, ...rest].join('|').slice(0, MAX_SKELETON_LENGTH);
+}
+
+function buildTimeline(outcomes, kindOf) {
+  const labels = (outcomes || []).map((outcome) => {
+    if (outcome === null) return 'ok';
+    if (outcome && outcome.stopped) return 'stopped';
+    return `${outcome.stage || 'unknown'}:${kindOf(outcome)}`;
+  });
+  const runs = [];
+  for (const label of labels) {
+    const last = runs[runs.length - 1];
+    if (last && last.label === label) {
+      last.count += 1;
+    } else {
+      runs.push({ label, count: 1 });
+    }
+  }
+  const text = runs.slice(0, MAX_TIMELINE_RUNS).map((run) => (run.count > 1 ? `${run.label}x${run.count}` : run.label));
+  if (runs.length > MAX_TIMELINE_RUNS) {
+    text.push(`...(+${runs.length - MAX_TIMELINE_RUNS} more)`);
+  }
+  return text;
+}
+
+function buildReport({ failures, totals, context, appVersion, secrets, outcomes }) {
   const redact = createRedactor(secrets);
   const groups = new Map();
   for (const failure of failures) {
     const kind = classifyFailure(failure);
     const stage = failure.stage || 'unknown';
     const key = `${stage}|${kind}`;
-    const group = groups.get(key) || { stage, kind, count: 0, sample: '' };
+    const group = groups.get(key) || { stage, kind, count: 0, samples: [] };
     group.count += 1;
-    if (!group.sample) {
-      group.sample = redact(trimPageDiagnostics(failure.reason)).slice(0, MAX_SAMPLE_LENGTH);
+    const sample = redact(trimPageDiagnostics(failure.reason)).slice(0, MAX_SAMPLE_LENGTH);
+    if (group.samples.length < MAX_SAMPLES_PER_GROUP && !group.samples.includes(sample)) {
+      group.samples.push(sample);
+    }
+    if (!group.request && failure.request && failure.request.body) {
+      group.request = {
+        path: redact(String(failure.request.path || '')),
+        bodySkeleton: skeletonizeGwtBody(failure.request.body, redact),
+      };
     }
     groups.set(key, group);
   }
@@ -101,7 +163,7 @@ function buildReport({ failures, totals, context, appVersion, secrets }) {
   }
 
   return {
-    schema: 1,
+    schema: 2,
     app: {
       version: appVersion || 'unknown',
       node: process.version,
@@ -114,6 +176,7 @@ function buildReport({ failures, totals, context, appVersion, secrets }) {
       created: totals ? totals.created : 0,
       failed: failures.length,
     },
+    timeline: buildTimeline(outcomes, classifyFailure),
     groups: Array.from(groups.values()).sort((left, right) => right.count - left.count),
   };
 }
@@ -249,7 +312,7 @@ class ReportSender {
   }
 
   // Never throws: a reporting problem must not affect the print run that triggered it.
-  async send({ failures, totals, context, secrets }) {
+  async send({ failures, totals, context, secrets, outcomes }) {
     let url;
     try {
       url = await this.configStore.load();
@@ -260,7 +323,7 @@ class ReportSender {
       return { sent: false, reason: 'not-configured' };
     }
 
-    const reportable = failures.filter((failure) => classifyFailure(failure) !== 'not-logged-in');
+    const reportable = failures.filter((failure) => !SKIPPED_KINDS.has(classifyFailure(failure)));
     if (reportable.length === 0) {
       return { sent: false, reason: 'nothing-to-report' };
     }
@@ -279,6 +342,7 @@ class ReportSender {
         context,
         appVersion: this.getAppVersion(),
         secrets,
+        outcomes,
       });
       await sendReport(url, report, { fetchImpl: this.fetchImpl });
       this.log('error report sent');
@@ -300,6 +364,7 @@ module.exports = {
   createRedactor,
   parseSentryDsn,
   sendReport,
+  skeletonizeGwtBody,
   trimPageDiagnostics,
   validateReportUrl,
 };

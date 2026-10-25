@@ -562,6 +562,7 @@ class MoySkladPrintRpcClient {
 
   async postOnce(path, payload) {
     const request = await this.browserSession.getRequestContext();
+    const body = applySignatureOverrides(payload, this.typeSignatures);
     const response = await request.post(`${ONLINE_BASE}${path}`, {
       headers: {
         Accept: '*/*',
@@ -569,13 +570,14 @@ class MoySkladPrintRpcClient {
         'X-GWT-Module-Base': this.moduleBase,
         'X-GWT-Permutation': this.permutation,
       },
-      data: applySignatureOverrides(payload, this.typeSignatures),
+      data: body,
     });
     const text = await response.text();
     if (!response.ok()) {
       const error = new Error(`${PRINT_PROTOCOL_ERROR} ${path} HTTP ${response.status()}: ${text.slice(0, 200)}`);
       error.status = response.status();
       error.path = path;
+      error.request = { path, body };
       throw error;
     }
     // GWT returns server-side exceptions as an HTTP-200 body prefixed with `//EX`.
@@ -584,6 +586,7 @@ class MoySkladPrintRpcClient {
       error.gwtException = true;
       error.path = path;
       error.responseText = text;
+      error.request = { path, body };
       throw error;
     }
     return text;

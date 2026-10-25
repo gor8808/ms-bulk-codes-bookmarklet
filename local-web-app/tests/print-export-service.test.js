@@ -199,3 +199,56 @@ test('PrintExportService does not call the reporter when every position succeeds
   });
   assert.equal(called, false);
 });
+
+test('PrintExportService passes the position timeline and request bodies to the reporter', async () => {
+  const sent = [];
+  const { service } = buildService({
+    rpcClient: {
+      async requestPositionPdf(input) {
+        if (input.positionId === 'pos-2') {
+          const error = new Error('HTTP 500');
+          error.status = 500;
+          error.request = { path: '/app/services/print/r1742/PriceTypePrintService', body: '7|0|0|' };
+          throw error;
+        }
+        return `task-${input.positionId}`;
+      },
+      async pollPrintTask(taskId) { return `https://print-prod.moysklad.ru/temp/${taskId}.pdf`; },
+      async downloadPdf() { return Buffer.from('PDF'); },
+    },
+  });
+  service.reporter = { async send(payload) { sent.push(payload); } };
+
+  const result = await service.run({
+    urls: [`https://online.moysklad.ru/app/#emissionorder/edit?id=${DOCUMENT_ID}`],
+    settings: { apiToken: 'token' },
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].outcomes.length, 2);
+  assert.equal(sent[0].outcomes[0], null);
+  assert.equal(sent[0].outcomes[1].stage, 'request');
+  assert.deepEqual(sent[0].failures[0].request, { path: '/app/services/print/r1742/PriceTypePrintService', body: '7|0|0|' });
+  assert.equal('request' in result.result.failed[0], false);
+});
+
+test('PrintExportService reports run level failures and rethrows them', async () => {
+  const sent = [];
+  const error = new Error('Сервер МойСклад недоступен');
+  error.statusCode = 503;
+  const { service } = buildService({
+    msClient: {
+      async getEmissionOrder() { throw error; },
+      async getEmissionOrderPositions() { return []; },
+    },
+  });
+  service.reporter = { async send(payload) { sent.push(payload); } };
+
+  await assert.rejects(
+    service.run({ urls: [DOCUMENT_ID], settings: { apiToken: 'token' } }),
+    /Сервер МойСклад недоступен/,
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].failures[0].stage, 'validate');
+  assert.equal(sent[0].failures[0].status, 503);
+});

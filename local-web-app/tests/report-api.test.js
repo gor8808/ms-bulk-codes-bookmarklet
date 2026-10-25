@@ -94,6 +94,10 @@ test('a failing print run automatically sends a redacted report to the configure
         const error = new Error(`Протокол печати МойСклад изменился. Invalid type signature for ${ACCOUNT} by user@example.com`);
         error.status = undefined;
         error.gwtException = true;
+        error.request = {
+          path: '/app/services/print/r1742/PriceTypePrintService',
+          body: `7|0|4|https://cdn-static.moysklad.ru/app/cdn/r1742/|523A2C005B818141D85FA157BCF35F27|SecretTemplateTok01234567|${ACCOUNT}|1|2|3|4|`,
+        };
         throw error;
       },
       getReportContext() { return { rpcVersion: 'r1742', signatureDrift: ['Type: 1 -> 2'] }; },
@@ -130,7 +134,12 @@ test('a failing print run automatically sends a redacted report to the configure
   assert.deepEqual(report.totals, { positions: 1, created: 0, failed: 1 });
   assert.equal(report.groups[0].stage, 'request');
   assert.equal(report.groups[0].kind, 'signature-mismatch');
-  for (const secret of ['tok-secret-1234', 'user@example.com', ACCOUNT, 'Секретный товар', '00468']) {
+  assert.deepEqual(report.timeline, ['request:signature-mismatch']);
+  assert.equal(
+    report.groups[0].request.bodySkeleton,
+    '7|0|4|https://cdn-static.moysklad.ru/app/cdn/r1742/|523A2C005B818141D85FA157BCF35F27|<str:25>|<uuid-1>|1|2|3|4|',
+  );
+  for (const secret of ['tok-secret-1234', 'user@example.com', ACCOUNT, 'Секретный товар', '00468', 'SecretTemplateTok01234567']) {
     assert.equal(body.includes(secret), false, `report leaked ${secret}`);
   }
 });

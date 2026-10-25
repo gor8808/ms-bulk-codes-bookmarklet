@@ -11,6 +11,7 @@ const {
   classifyFailure,
   createRedactor,
   parseSentryDsn,
+  skeletonizeGwtBody,
   validateReportUrl,
 } = require('../server/lib/error-report');
 
@@ -160,4 +161,59 @@ test('ReportSender skips not-logged-in failures and caps reports per hour', asyn
   clock += 61 * 60 * 1000;
   assert.equal((await sender.send(payload())).sent, true);
   assert.equal(calls, 3);
+});
+
+test('buildReport keeps up to three distinct redacted samples per group', () => {
+  const failures = ['a', 'b', 'a', 'c', 'd'].map((reason) => failure({ reason }));
+  const report = buildReport({ failures, totals: { positions: 5, created: 0 }, context: {} });
+  assert.equal(report.groups.length, 1);
+  assert.equal(report.groups[0].count, 5);
+  assert.deepEqual(report.groups[0].samples, ['a', 'b', 'c']);
+});
+
+test('buildReport records a compact run-length timeline of position outcomes', () => {
+  const poll = failure({ stage: 'poll', reason: 'МойСклад не смог подготовить PDF: x' });
+  const request = failure({ stage: 'request', status: 500, reason: 'HTTP 500' });
+  const report = buildReport({
+    failures: [poll, poll, request],
+    totals: { positions: 7, created: 4 },
+    context: {},
+    outcomes: [null, null, null, null, poll, poll, request, { stopped: true }],
+  });
+  assert.deepEqual(report.timeline, ['okx4', 'poll:task-failedx2', 'request:http-500', 'stopped']);
+});
+
+test('skeletonizeGwtBody keeps contract shape and masks account specific values', () => {
+  const body = '7|0|8|https://cdn-static.moysklad.ru/app/cdn/r1742/|523A2C005B818141D85FA157BCF35F27|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.type.ID/131549306|admin@example.com|SecretTemplateTok01234567|' + ACCOUNT + '|1|2|3|4|1|5|ZxQxboj|7|8|8|';
+  const skeleton = skeletonizeGwtBody(body, createRedactor([]));
+  assert.equal(
+    skeleton,
+    '7|0|8|https://cdn-static.moysklad.ru/app/cdn/r1742/|523A2C005B818141D85FA157BCF35F27|com.lognex.print.face.common.service.PriceTypePrintService|requestDocument|com.lognex.type.ID/131549306|<email>|<str:25>|<uuid-1>|1|2|3|4|1|5|<b64:7>|7|8|8|',
+  );
+  assert.equal(skeletonizeGwtBody('garbage', createRedactor([])), '<unparsed request body>');
+});
+
+test('buildReport attaches one masked request skeleton per group', () => {
+  const body = '7|0|2|https://cdn-static.moysklad.ru/app/cdn/r1742/|My Secret Name|1|2|';
+  const report = buildReport({
+    failures: [
+      failure({ request: { path: '/app/services/r1742/ExportImportService', body } }),
+      failure({ reason: 'second', request: { path: '/other', body: '7|0|0|' } }),
+    ],
+    totals: { positions: 2, created: 0 },
+    context: {},
+  });
+  assert.equal(report.groups[0].request.path, '/app/services/r1742/ExportImportService');
+  assert.equal(report.groups[0].request.bodySkeleton.includes('My Secret Name'), false);
+  assert.match(report.groups[0].request.bodySkeleton, /<str:14>/);
+});
+
+test('auth failures are classified and never reported', async () => {
+  assert.equal(classifyFailure(failure({ reason: 'Неверный токен', stage: 'validate' })), 'auth');
+  assert.equal(classifyFailure(failure({ reason: 'x', status: 403 })), 'auth');
+  let calls = 0;
+  const sender = senderWith('https://relay.example.com/r', async () => { calls += 1; return { ok: true }; });
+  const result = await sender.send({ ...payload(), failures: [failure({ reason: 'Неверный токен', stage: 'validate', status: 401 })] });
+  assert.deepEqual(result, { sent: false, reason: 'nothing-to-report' });
+  assert.equal(calls, 0);
 });
