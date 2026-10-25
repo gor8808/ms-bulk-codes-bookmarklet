@@ -45,11 +45,24 @@
     printRunId: null,
     printEventSource: null,
     printValidated: null,
+    kizResult: null,
+    kizFileName: '',
   };
 
   const els = {
     createTabBtn: document.getElementById('createTabBtn'),
     printTabBtn: document.getElementById('printTabBtn'),
+    kizTabBtn: document.getElementById('kizTabBtn'),
+    kizInputView: document.getElementById('kizInputView'),
+    kizDropZone: document.getElementById('kizDropZone'),
+    kizChooseFileBtn: document.getElementById('kizChooseFileBtn'),
+    kizFileInput: document.getElementById('kizFileInput'),
+    kizFileName: document.getElementById('kizFileName'),
+    kizSummary: document.getElementById('kizSummary'),
+    kizFileError: document.getElementById('kizFileError'),
+    kizPreview: document.getElementById('kizPreview'),
+    kizPreviewBody: document.getElementById('kizPreviewBody'),
+    kizDownloadBtn: document.getElementById('kizDownloadBtn'),
     inputView: document.getElementById('inputView'),
     printInputView: document.getElementById('printInputView'),
     printProgressView: document.getElementById('printProgressView'),
@@ -127,11 +140,14 @@
     els.printInputView.classList.toggle('hidden', name !== 'printInput');
     els.printProgressView.classList.toggle('hidden', name !== 'printProgress');
     els.printSummaryView.classList.toggle('hidden', name !== 'printSummary');
+    els.kizInputView.classList.toggle('hidden', name !== 'kizInput');
     els.progressView.classList.toggle('hidden', name !== 'progress');
     els.summaryView.classList.toggle('hidden', name !== 'summary');
     const isPrint = name.startsWith('print');
-    els.createTabBtn.classList.toggle('active', !isPrint);
+    const isKiz = name.startsWith('kiz');
+    els.createTabBtn.classList.toggle('active', !isPrint && !isKiz);
     els.printTabBtn.classList.toggle('active', isPrint);
+    els.kizTabBtn.classList.toggle('active', isKiz);
   }
 
   function saveActivePrintRun(runId) {
@@ -361,6 +377,103 @@
   function getDroppedFile(event) {
     const files = Array.from(event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : []);
     return files.find((file) => /\.(xlsx|xls)$/i.test(file.name)) || files[0] || null;
+  }
+
+  async function readFirstSheetRows(file) {
+    if (!window.XLSX) {
+      throw new Error('Библиотека XLSX не загружена');
+    }
+
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!sheet) {
+      throw new Error('В файле нет листов');
+    }
+
+    return window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+  }
+
+  function renderKizResult(result) {
+    const productCount = result.products.length;
+    const lines = [
+      `Файл загружен: ${state.kizFileName}`,
+      `Найдено КИЗ: ${result.totalCodes}`,
+      `Товаров (строк в CSV): ${productCount}`,
+      `Итого штук: ${result.products.reduce((sum, product) => sum + product.qty, 0)}`,
+    ];
+    if (result.skipped.length) {
+      lines.push(`Пропущено строк: ${result.skipped.length}`);
+      for (const row of result.skipped.slice(0, 10)) {
+        lines.push(`  строка ${row.rowIndex}: ${row.reason}${row.value ? ` (${row.value.slice(0, 40)})` : ''}`);
+      }
+      if (result.skipped.length > 10) {
+        lines.push(`  …и ещё ${result.skipped.length - 10}`);
+      }
+    }
+
+    els.kizSummary.textContent = lines.join('\n');
+    els.kizSummary.classList.remove('hidden');
+    els.kizSummary.classList.toggle('has-skipped', result.skipped.length > 0);
+
+    els.kizPreviewBody.innerHTML = '';
+    for (const product of result.products) {
+      const row = document.createElement('tr');
+      for (const value of [product.gtin, product.ean13, product.qty]) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.appendChild(cell);
+      }
+      els.kizPreviewBody.appendChild(row);
+    }
+    els.kizPreview.classList.toggle('hidden', productCount === 0);
+    els.kizDownloadBtn.disabled = productCount === 0;
+    if (productCount === 0) {
+      els.kizFileError.textContent = 'В столбце «КИЗ» нет ни одного кода маркировки';
+    }
+  }
+
+  async function parseKizFile(file) {
+    state.kizResult = null;
+    state.kizFileName = file ? file.name : '';
+    els.kizFileName.textContent = file ? file.name : 'Файл не выбран';
+    els.kizFileError.textContent = '';
+    els.kizSummary.classList.add('hidden');
+    els.kizPreview.classList.add('hidden');
+    els.kizDownloadBtn.disabled = true;
+    if (!file) {
+      return;
+    }
+
+    try {
+      const result = window.MSKizImportCore.buildImport(await readFirstSheetRows(file));
+      if (result.error) {
+        els.kizFileError.textContent = result.error;
+        return;
+      }
+
+      state.kizResult = result;
+      renderKizResult(result);
+    } catch (error) {
+      els.kizFileError.textContent = error && error.message
+        ? `Не удалось прочитать XLSX: ${error.message}`
+        : 'Не удалось прочитать XLSX';
+    }
+  }
+
+  function downloadKizCsv() {
+    if (!state.kizResult) {
+      return;
+    }
+
+    const csv = window.MSKizImportCore.toCsv(state.kizResult.products);
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = window.MSKizImportCore.csvFileName(state.kizFileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function updateProgress(event) {
@@ -701,6 +814,24 @@
       showView('printInput');
       checkBrowserStatus();
     });
+    els.kizTabBtn.addEventListener('click', () => showView('kizInput'));
+    els.kizChooseFileBtn.addEventListener('click', () => els.kizFileInput.click());
+    els.kizFileInput.addEventListener('change', () => parseKizFile(els.kizFileInput.files[0]));
+    els.kizDropZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      els.kizDropZone.classList.add('drag-over');
+    });
+    els.kizDropZone.addEventListener('dragleave', (event) => {
+      if (!els.kizDropZone.contains(event.relatedTarget)) {
+        els.kizDropZone.classList.remove('drag-over');
+      }
+    });
+    els.kizDropZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      els.kizDropZone.classList.remove('drag-over');
+      parseKizFile(getDroppedFile(event));
+    });
+    els.kizDownloadBtn.addEventListener('click', downloadKizCsv);
     els.browserLoginBtn.addEventListener('click', loginBrowser);
     els.saveReportBtn.addEventListener('click', saveReportConfig);
     loadReportConfig();
