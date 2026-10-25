@@ -11,6 +11,7 @@ const {
   classifyFailure,
   createRedactor,
   parseSentryDsn,
+  sendReport,
   skeletonizeGwtBody,
   validateReportUrl,
 } = require('../server/lib/error-report');
@@ -84,7 +85,26 @@ test('validateReportUrl requires https except for localhost', () => {
   assert.equal(validateReportUrl(' https://a@b.io/1 '), 'https://a@b.io/1');
   assert.equal(validateReportUrl('http://localhost:9/x'), 'http://localhost:9/x');
   assert.throws(() => validateReportUrl('http://example.com/x'), /https/);
-  assert.throws(() => validateReportUrl('not a url'), /Некорректный/);
+  assert.throws(() => validateReportUrl('notaurl'), /Некорректный/);
+});
+
+test('validateReportUrl rejects pasted text around a DSN and credentials that are not a DSN', () => {
+  const dsn = 'https://0123456789abcdef0123456789abcdef@o1.ingest.de.sentry.io/1234567890';
+  assert.equal(validateReportUrl(dsn), dsn);
+  assert.throws(() => validateReportUrl(`${dsn}\nControl the Data You Send`), /пробелов/);
+  assert.throws(() => validateReportUrl(`${dsn} Verify`), /пробелов/);
+  assert.throws(() => validateReportUrl(`${dsn}Control%20the%20Data`), /не похож на Sentry DSN/);
+  assert.throws(() => validateReportUrl('https://user:pass@relay.example.com/report'), /не похож на Sentry DSN/);
+});
+
+test('sendReport refuses a url with credentials that is not a Sentry DSN instead of calling fetch', async () => {
+  const report = buildReport({ failures: [failure()], totals: { positions: 1, created: 0 }, context: {} });
+  let calls = 0;
+  await assert.rejects(
+    sendReport('https://key@o1.ingest.sentry.io/not-a-number', report, { fetchImpl: async () => { calls += 1; return { ok: true }; } }),
+    /not a valid Sentry DSN/,
+  );
+  assert.equal(calls, 0);
 });
 
 test('ReportConfigStore saves, describes without exposing the key, and clears', async () => {
@@ -216,4 +236,19 @@ test('auth failures are classified and never reported', async () => {
   const result = await sender.send({ ...payload(), failures: [failure({ reason: 'Неверный токен', stage: 'validate', status: 401 })] });
   assert.deepEqual(result, { sent: false, reason: 'nothing-to-report' });
   assert.equal(calls, 0);
+});
+
+test('report urls pasted with invisible characters are cleaned when saved and when read', async () => {
+  const dsn = 'https://0123456789abcdef0123456789abcdef@o1.ingest.de.sentry.io/1234567890';
+  const dirty = `\u200B${dsn}\u200B\u00A0\uFEFF`;
+  assert.equal(validateReportUrl(dirty), dsn);
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'report-clean-'));
+  const file = path.join(dir, 'report-url.txt');
+  await fs.writeFile(file, `${dsn}\u200B\n`);
+  assert.equal(await new ReportConfigStore(file, {}).load(), dsn);
+  assert.equal(await new ReportConfigStore(file, { MS_REPORT_URL: dirty }).load(), dsn);
+  await new ReportConfigStore(file, {}).save(dirty);
+  assert.equal((await fs.readFile(file, 'utf8')), `${dsn}\n`);
+  await fs.rm(dir, { recursive: true, force: true });
 });

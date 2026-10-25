@@ -18,12 +18,21 @@ const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const EMAIL_PATTERN = /[\w.%+-]+@[\w.-]+/g;
 const AUTH_PATTERN = /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
 
+// Addresses pasted from chat apps or web pages often carry zero-width or non-breaking
+// spaces that String.trim() leaves in place and that silently break DSN parsing.
+function cleanReportUrl(value) {
+  return String(value || '').replace(/[\u200B-\u200D\u2060\uFEFF\u00A0]/g, '').trim();
+}
+
 function isLocalHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
 function validateReportUrl(value) {
-  const raw = String(value || '').trim();
+  const raw = cleanReportUrl(value);
+  if (/\s/.test(raw)) {
+    throw new Error('Адрес не должен содержать пробелов и переносов строк. Вставьте только сам адрес.');
+  }
   let url;
   try {
     url = new URL(raw);
@@ -32,6 +41,9 @@ function validateReportUrl(value) {
   }
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocalHost(url.hostname))) {
     throw new Error('Адрес для отчётов должен начинаться с https://');
+  }
+  if ((url.username || url.password) && !parseSentryDsn(raw)) {
+    throw new Error('Адрес содержит ключ, но не похож на Sentry DSN. Ожидается https://<ключ>@<хост>/<номер проекта>.');
   }
   return raw;
 }
@@ -226,6 +238,12 @@ function buildSentryEnvelope(report, now = new Date()) {
 
 async function sendReport(url, report, { fetchImpl = globalThis.fetch, timeoutMs = SEND_TIMEOUT_MS } = {}) {
   const dsn = parseSentryDsn(url);
+  if (!dsn) {
+    const target = new URL(url);
+    if (target.username || target.password) {
+      throw new Error('Report URL has credentials but is not a valid Sentry DSN (expected https://<key>@<host>/<project id>)');
+    }
+  }
   const signal = AbortSignal.timeout(timeoutMs);
   const response = dsn
     ? await fetchImpl(dsn.endpoint, {
@@ -256,10 +274,10 @@ class ReportConfigStore {
 
   async load() {
     if (this.env.MS_REPORT_URL) {
-      return String(this.env.MS_REPORT_URL).trim();
+      return cleanReportUrl(this.env.MS_REPORT_URL);
     }
     try {
-      return (await fs.readFile(this.filePath, 'utf8')).trim();
+      return cleanReportUrl(await fs.readFile(this.filePath, 'utf8'));
     } catch (error) {
       if (error.code === 'ENOENT') {
         return '';
@@ -269,7 +287,7 @@ class ReportConfigStore {
   }
 
   async save(value) {
-    const raw = String(value || '').trim();
+    const raw = cleanReportUrl(value);
     if (!raw) {
       await fs.rm(this.filePath, { force: true });
       return '';
