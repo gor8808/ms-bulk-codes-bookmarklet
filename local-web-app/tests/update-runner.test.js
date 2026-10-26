@@ -5,7 +5,7 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { runUpdate } = require('../server/update-runner');
+const { runUpdate, packageManagerCommand } = require('../server/update-runner');
 
 function git(cwd, ...args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -51,4 +51,25 @@ test('runUpdate checks out the requested tag and writes update markers', async (
   assert.equal(lastUpdate.to, 'v0.2.0');
   assert.equal(fs.existsSync(path.join(appDir, '.update-in-progress')), false);
   assert.equal((await fsp.readFile(path.join(appDir, '.update-progress'), 'utf8')).trim(), 'restarting');
+});
+
+test('packageManagerCommand runs npm through a shell on Windows to avoid spawn EINVAL', () => {
+  assert.deepEqual(packageManagerCommand('npm', ['install'], 'win32'), {
+    file: 'npm.cmd install',
+    args: [],
+    options: { shell: true },
+  });
+  assert.deepEqual(packageManagerCommand('npx', ['playwright', 'install', 'chromium'], 'win32'), {
+    file: 'npx.cmd playwright install chromium',
+    args: [],
+    options: { shell: true },
+  });
+});
+
+test('packageManagerCommand calls the binary directly elsewhere', () => {
+  assert.deepEqual(packageManagerCommand('npm', ['install'], 'darwin'), {
+    file: 'npm',
+    args: ['install'],
+    options: {},
+  });
 });
