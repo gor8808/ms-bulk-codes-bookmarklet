@@ -12,6 +12,10 @@ const POLL_INTERVAL_MS = 30 * 60 * 1000;
 const STATUS_CACHE_TTL_MS = 60 * 1000;
 const CHECK_RATE_LIMIT_MS = 10 * 1000;
 const LOCK_STALE_MS = 10 * 60 * 1000;
+const FIRST_CHECK_DELAY_MS = 2 * 60 * 1000;
+const AUTO_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
+const MAX_AUTO_ATTEMPTS = 3;
+const REPORT_LOG_LINES = 40;
 
 function createDefaultStatus() {
   return {
@@ -97,6 +101,11 @@ class Updater {
     this.statusCacheTtlMs = options.statusCacheTtlMs || STATUS_CACHE_TTL_MS;
     this.checkRateLimitMs = options.checkRateLimitMs || CHECK_RATE_LIMIT_MS;
     this.lockStaleMs = options.lockStaleMs || LOCK_STALE_MS;
+    this.firstCheckDelayMs = options.firstCheckDelayMs || FIRST_CHECK_DELAY_MS;
+    this.autoRetryDelayMs = options.autoRetryDelayMs || AUTO_RETRY_DELAY_MS;
+    this.maxAutoAttempts = options.maxAutoAttempts || MAX_AUTO_ATTEMPTS;
+    this.autoInstall = options.autoInstall !== false;
+    this.reporter = options.reporter || null;
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
     this.spawnImpl = options.spawnImpl || spawn;
     this.execFileImpl = options.execFileImpl || execFileAsync;
@@ -116,7 +125,7 @@ class Updater {
 
   async start() {
     await this.ensureInitialStatus();
-    this.schedulePoll(this.pollIntervalMs);
+    this.schedulePoll(this.firstCheckDelayMs);
   }
 
   stop() {
@@ -187,7 +196,6 @@ class Updater {
     const status = createDefaultStatus();
     status.busy = this.isBusy();
     status.current = await this.getCurrentTag();
-    await this.refreshFileBackedState(status);
 
     try {
       const release = await this.getLatestRelease(force);
@@ -195,12 +203,11 @@ class Updater {
       status.releaseUrl = release.releaseUrl || '';
       status.releaseNotes = release.releaseNotes || '';
       status.updateAvailable = isUpdateAvailable(status.current, status.latest);
-    } catch (error) {
-      if (!status.lastUpdate || !status.lastUpdate.error) {
-        status.lastUpdate = status.lastUpdate || null;
-      }
-      status.releaseNotes = status.releaseNotes || '';
+    } catch (_) {
+      // offline or rate-limited: keep showing the installed version
     }
+
+    await this.refreshFileBackedState(status);
 
     status.busy = this.isBusy();
     this.status = status;
@@ -213,12 +220,13 @@ class Updater {
     const progress = await readTextIfExists(this.paths.progress);
     const lastUpdate = await readJsonIfExists(this.paths.lastUpdate);
     status.lastUpdate = lastUpdate;
-    status.phase = this.resolvePhase(progress, lastUpdate);
+    status.phase = this.resolvePhase(progress, lastUpdate, status.latest);
+    status.autoInstall = this.autoInstall;
     status.updateAvailable = status.updateAvailable || false;
     return status;
   }
 
-  resolvePhase(progressText, lastUpdate) {
+  resolvePhase(progressText, lastUpdate, latest) {
     if (this.isLocked()) {
       const phase = String(progressText || '').trim();
       if (phase === 'pulling' || phase === 'installing' || phase === 'restarting') {
@@ -227,7 +235,8 @@ class Updater {
       return 'pulling';
     }
 
-    if (lastUpdate && lastUpdate.error) {
+    // A failure only blocks the release it happened on; a newer release gets a fresh try.
+    if (lastUpdate && lastUpdate.error && (!latest || latest === 'unknown' || lastUpdate.to === latest)) {
       return 'failed';
     }
 
@@ -310,10 +319,59 @@ class Updater {
     child.unref();
   }
 
+  // Publishing a GitHub release is how a new version reaches every install: each app
+  // checks on this schedule and installs it as soon as no task is running.
+  async runScheduledCheck() {
+    await this.refreshStatus({ force: true });
+    await this.reportLastUpdate();
+    if (this.shouldAutoInstall()) {
+      await this.spawnUpdateRunner(this.status.latest, this.status.current);
+      await this.refreshFileBackedState();
+    }
+  }
+
+  shouldAutoInstall() {
+    const status = this.status;
+    if (!this.autoInstall || !status.updateAvailable || status.busy || this.isLocked()) {
+      return false;
+    }
+
+    if (status.phase === 'idle') {
+      return true;
+    }
+
+    const failure = status.lastUpdate;
+    if (status.phase !== 'failed' || !failure) {
+      return false;
+    }
+
+    const failedAt = Date.parse(failure.ts || '');
+    const attempts = Number(failure.attempts) || 1;
+    return attempts < this.maxAutoAttempts
+      && Number.isFinite(failedAt)
+      && (this.now() - failedAt) >= this.autoRetryDelayMs;
+  }
+
+  async reportLastUpdate() {
+    const outcome = this.status.lastUpdate;
+    if (!this.reporter || !outcome || outcome.reported || this.isLocked()) {
+      return;
+    }
+
+    const log = await readTextIfExists(this.paths.log);
+    const logTail = log.trim().split(/\r?\n/).slice(-REPORT_LOG_LINES).join('\n');
+    const result = await this.reporter.sendUpdate({ outcome, logTail }).catch(() => ({ sent: false }));
+    if (result.sent || result.reason === 'not-configured') {
+      const stored = { ...outcome, reported: true };
+      await fsp.writeFile(this.paths.lastUpdate, `${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+      this.status.lastUpdate = stored;
+    }
+  }
+
   schedulePoll(delayMs) {
     this.stop();
     this.pollTimer = setTimeout(async () => {
-      await this.refreshStatus({ force: true, allowInstall: true }).catch(() => {});
+      await this.runScheduledCheck().catch(() => {});
       this.schedulePoll(this.pollIntervalMs);
     }, delayMs);
   }

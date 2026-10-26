@@ -1,96 +1,75 @@
 #!/usr/bin/env node
 
+// Stage 1 of an update. This file runs from the version being replaced, so a bug here
+// can only be fixed by users updating past it — keep it small and boring. It locks,
+// fetches and checks out the target tag, then hands installing and restarting to the
+// target release's own post-update.js (stage 2). If stage 2 fails, it checks out the
+// previous version again and records the error for the app to show and report.
+
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { execFile, spawn } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+// Loaded before checkout, so this is the current release's copy: used only when the
+// target release has no post-update.js (a downgrade to a release older than v0.1.13).
+const builtInPostUpdate = require('./post-update');
 
 const execFileAsync = promisify(execFile);
+const POST_UPDATE_PATH = path.join('local-web-app', 'server', 'post-update.js');
 
 function normalizeError(error) {
   return error && error.message ? error.message : String(error);
 }
 
-async function fileHash(filePath) {
-  try {
-    const buffer = await fsp.readFile(filePath);
-    return crypto.createHash('sha256').update(buffer).digest('hex');
-  } catch (error) {
-    if (error && error.code === 'ENOENT') {
-      return '';
-    }
-    throw error;
-  }
-}
-
-async function readPackageJson(filePath) {
-  try {
-    return JSON.parse(await fsp.readFile(filePath, 'utf8'));
-  } catch (error) {
-    if (error && error.code === 'ENOENT') {
-      return {};
-    }
-    throw error;
-  }
+async function log(paths, line) {
+  await fsp.appendFile(paths.log, `${new Date().toISOString()} ${line}\n`, 'utf8');
 }
 
 async function writeProgress(paths, phase) {
   await fsp.writeFile(paths.progress, phase, 'utf8');
-  await fsp.appendFile(paths.log, `${new Date().toISOString()} ${phase}\n`, 'utf8');
+  await log(paths, phase);
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(await fsp.readFile(filePath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
 }
 
 async function writeLastUpdate(paths, payload) {
   await fsp.writeFile(paths.lastUpdate, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
-async function command(cwd, file, args, options = {}) {
-  await execFileAsync(file, args, { cwd, ...options });
-}
-
-// Node refuses to spawn .cmd files without a shell on Windows (spawn EINVAL,
-// CVE-2024-27980), so run npm/npx as one shell string there. Args are fixed
-// words, so joining them is safe and avoids the DEP0190 args-with-shell warning.
-function packageManagerCommand(tool, args, platform = process.platform) {
-  if (platform === 'win32') {
-    return { file: [`${tool}.cmd`, ...args].join(' '), args: [], options: { shell: true } };
-  }
-
-  return { file: tool, args, options: {} };
-}
-
-async function currentRef(repoDir) {
-  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoDir });
+async function git(repoDir, args) {
+  const { stdout } = await execFileAsync('git', args, { cwd: repoDir, windowsHide: true });
   return stdout.trim();
 }
 
-async function checkout(repoDir, ref) {
-  await command(repoDir, 'git', ['checkout', ref]);
+function lastLine(text) {
+  return String(text || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
 }
 
-async function installNpmDependencies(repoDir) {
-  const npm = packageManagerCommand('npm', ['install']);
-  await command(repoDir, npm.file, npm.args, npm.options);
-}
-
-async function installPlaywright(repoDir) {
-  const npx = packageManagerCommand('npx', ['playwright', 'install', 'chromium']);
-  await command(repoDir, npx.file, npx.args, npx.options);
-}
-
-async function restartServer({ appDir, serverPid }) {
-  if (Number.isFinite(serverPid) && serverPid > 0) {
-    try {
-      process.kill(serverPid, 'SIGTERM');
-    } catch (_) {
-      // noop
-    }
+async function runStage(input, paths, command, payload) {
+  const script = path.join(input.repoDir, POST_UPDATE_PATH);
+  if (!fs.existsSync(script)) {
+    const result = await builtInPostUpdate[command](payload);
+    await log(paths, `${command}: ${result.steps.join(', ') || 'nothing to do'} (built-in)`);
+    return;
   }
 
-  if (process.platform === 'win32') {
-    const launcher = path.join(appDir, 'start-hidden.vbs');
-    await execFileAsync('wscript.exe', ['//B', launcher], { windowsHide: true });
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [script, command, JSON.stringify(payload)], {
+      cwd: input.repoDir,
+      windowsHide: true,
+    });
+    await log(paths, lastLine(stdout) || `${command}: done`);
+  } catch (error) {
+    const reason = lastLine(error.stderr) || normalizeError(error);
+    await log(paths, `${command} failed: ${reason}`);
+    throw new Error(reason);
   }
 }
 
@@ -101,8 +80,6 @@ async function runUpdate(input) {
     lastUpdate: path.join(input.appDir, '.last-update'),
     log: path.join(input.appDir, '.update.log'),
   };
-  const packageLockPath = path.join(input.repoDir, 'package-lock.json');
-  const packageJsonPath = path.join(input.repoDir, 'package.json');
 
   const existingLock = await fsp.stat(paths.lock).catch(() => null);
   if (existingLock && ((Date.now() - existingLock.mtimeMs) < input.lockStaleMs)) {
@@ -110,53 +87,55 @@ async function runUpdate(input) {
   }
 
   await fsp.writeFile(paths.lock, `${process.pid}\n`, 'utf8');
-  const previousRef = await currentRef(input.repoDir);
-  const previousLockHash = await fileHash(packageLockPath);
-  const previousPkg = await readPackageJson(packageJsonPath);
+  const previousRef = await git(input.repoDir, ['rev-parse', 'HEAD']);
+  const previous = await builtInPostUpdate.readSnapshot(input.repoDir);
+  const lastUpdate = await readJsonIfExists(paths.lastUpdate);
+  const attempts = lastUpdate && lastUpdate.error && lastUpdate.to === input.targetTag
+    ? (Number(lastUpdate.attempts) || 1) + 1
+    : 1;
+  const outcome = { from: input.currentTag || previousRef, to: input.targetTag, attempts };
 
   try {
+    await log(paths, `update ${outcome.from} -> ${outcome.to} (attempt ${attempts})`);
     await writeProgress(paths, 'pulling');
-    await command(input.repoDir, 'git', ['fetch', '--tags']);
-    await checkout(input.repoDir, input.targetTag);
+    await git(input.repoDir, ['fetch', '--tags', '--force']);
+    await git(input.repoDir, ['checkout', '--force', input.targetTag]);
 
-    const currentLockHash = await fileHash(packageLockPath);
-    const currentPkg = await readPackageJson(packageJsonPath);
-    if (currentLockHash !== previousLockHash) {
-      await writeProgress(paths, 'installing');
-      await installNpmDependencies(input.repoDir);
-    }
-
-    const previousPlaywright = previousPkg.dependencies && previousPkg.dependencies.playwright;
-    const currentPlaywright = currentPkg.dependencies && currentPkg.dependencies.playwright;
-    if (previousPlaywright !== currentPlaywright && currentPlaywright) {
-      await writeProgress(paths, 'installing');
-      await installPlaywright(input.repoDir);
-    }
-
-    await writeLastUpdate(paths, {
-      from: input.currentTag || previousRef,
-      to: input.targetTag,
-      ts: new Date().toISOString(),
+    await writeProgress(paths, 'installing');
+    await runStage(input, paths, 'install', {
+      repoDir: input.repoDir,
+      appDir: input.appDir,
+      previousLockHash: previous.lockHash,
+      previousPlaywright: previous.playwright,
     });
-    await writeProgress(paths, 'restarting');
-    await restartServer({ appDir: input.appDir, serverPid: input.serverPid });
   } catch (error) {
+    const target = await builtInPostUpdate.readSnapshot(input.repoDir).catch(() => previous);
     try {
-      await checkout(input.repoDir, previousRef);
-    } catch (_) {
-      // noop
+      await git(input.repoDir, ['checkout', '--force', previousRef]);
+      await runStage(input, paths, 'install', {
+        repoDir: input.repoDir,
+        appDir: input.appDir,
+        previousLockHash: target.lockHash,
+        previousPlaywright: target.playwright,
+      });
+    } catch (rollbackError) {
+      await log(paths, `rollback problem: ${normalizeError(rollbackError)}`);
     }
 
-    await writeLastUpdate(paths, {
-      from: input.currentTag || previousRef,
-      to: input.targetTag,
-      ts: new Date().toISOString(),
-      error: normalizeError(error),
-    });
-    throw error;
-  } finally {
+    await writeLastUpdate(paths, { ...outcome, ts: new Date().toISOString(), error: normalizeError(error) });
     await fsp.unlink(paths.lock).catch(() => {});
+    throw error;
   }
+
+  // The new version is in place; a restart problem must not roll it back.
+  await writeLastUpdate(paths, { ...outcome, ts: new Date().toISOString() });
+  await writeProgress(paths, 'restarting');
+  await fsp.unlink(paths.lock).catch(() => {});
+  await runStage(input, paths, 'restart', {
+    repoDir: input.repoDir,
+    appDir: input.appDir,
+    serverPid: input.serverPid,
+  }).catch(() => {});
 }
 
 async function main() {
@@ -165,12 +144,11 @@ async function main() {
     throw new Error('Missing update-runner payload');
   }
 
-  const input = JSON.parse(raw);
-  await runUpdate(input);
+  await runUpdate(JSON.parse(raw));
 }
 
 if (require.main === module) {
-  main().catch(async (error) => {
+  main().catch((error) => {
     process.stderr.write(`${normalizeError(error)}\n`);
     process.exitCode = 1;
   });
@@ -178,6 +156,4 @@ if (require.main === module) {
 
 module.exports = {
   runUpdate,
-  fileHash,
-  packageManagerCommand,
 };
