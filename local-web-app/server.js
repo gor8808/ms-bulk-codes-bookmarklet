@@ -58,6 +58,7 @@ function createApp(options = {}) {
     appDir: __dirname,
     serverPid: process.pid,
     runManagers: [runManager, printRunManager],
+    reporter,
   });
 
   async function handleApi(req, res) {
