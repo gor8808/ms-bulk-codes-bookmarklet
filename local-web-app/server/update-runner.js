@@ -45,8 +45,19 @@ async function writeLastUpdate(paths, payload) {
   await fsp.writeFile(paths.lastUpdate, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
-async function command(cwd, file, args) {
-  await execFileAsync(file, args, { cwd });
+async function command(cwd, file, args, options = {}) {
+  await execFileAsync(file, args, { cwd, ...options });
+}
+
+// Node refuses to spawn .cmd files without a shell on Windows (spawn EINVAL,
+// CVE-2024-27980), so run npm/npx as one shell string there. Args are fixed
+// words, so joining them is safe and avoids the DEP0190 args-with-shell warning.
+function packageManagerCommand(tool, args, platform = process.platform) {
+  if (platform === 'win32') {
+    return { file: [`${tool}.cmd`, ...args].join(' '), args: [], options: { shell: true } };
+  }
+
+  return { file: tool, args, options: {} };
 }
 
 async function currentRef(repoDir) {
@@ -59,13 +70,13 @@ async function checkout(repoDir, ref) {
 }
 
 async function installNpmDependencies(repoDir) {
-  const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  await command(repoDir, executable, ['install']);
+  const npm = packageManagerCommand('npm', ['install']);
+  await command(repoDir, npm.file, npm.args, npm.options);
 }
 
 async function installPlaywright(repoDir) {
-  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  await command(repoDir, executable, ['playwright', 'install', 'chromium']);
+  const npx = packageManagerCommand('npx', ['playwright', 'install', 'chromium']);
+  await command(repoDir, npx.file, npx.args, npx.options);
 }
 
 async function restartServer({ appDir, serverPid }) {
@@ -168,4 +179,5 @@ if (require.main === module) {
 module.exports = {
   runUpdate,
   fileHash,
+  packageManagerCommand,
 };
