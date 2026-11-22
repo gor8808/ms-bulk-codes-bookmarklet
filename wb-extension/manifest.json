@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "WB: подгонка цены под акцию",
+  "version": "0.1.0",
+  "description": "Кнопка «Подогнать» в карточке товара на странице «Цены и скидки»: подбирает скидку и цену под цену участия в акции.",
+  "content_scripts": [
+    {
+      "matches": ["https://seller.wildberries.ru/*"],
+      "js": ["lib/price-fit.js", "lib/selectors.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
