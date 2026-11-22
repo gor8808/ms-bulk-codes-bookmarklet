@@ -9,7 +9,9 @@
     "test:extension": "node --test tests/cdp-sequence.test.js tests/outcome-evaluator.test.js tests/service-observation-shape.test.js tests/bulk-session.test.js tests/response-parser.test.js",
     "test:local-app": "node --test local-web-app/tests/*.test.js",
     "start:local-app": "node local-web-app/server.js",
-    "install:local-app": "node scripts/install-local-app.js"
+    "install:local-app": "node scripts/install-local-app.js",
+    "test:wb-extension": "node --test tests/wb-price-fit.test.js tests/wb-userscript.test.js tests/wb-userscript-dom.test.js",
+    "build:wb-userscript": "node scripts/build-wb-userscript.js"
   },
   "keywords": [],
   "author": "",
