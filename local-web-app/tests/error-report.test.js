@@ -252,3 +252,32 @@ test('report urls pasted with invisible characters are cleaned when saved and wh
   assert.equal((await fs.readFile(file, 'utf8')), `${dsn}\n`);
   await fs.rm(dir, { recursive: true, force: true });
 });
+
+test('ReportSender.sendUpdate reports update outcomes with redacted log and Sentry level', async () => {
+  const seen = [];
+  const fetchImpl = async (url, options) => { seen.push({ url, options }); return { ok: true, status: 200 }; };
+  const home = 'C:\\Users\\Ivan Petrov';
+  const sender = senderWith('https://k3y@o1.ingest.sentry.io/77', fetchImpl, { secrets: [home] });
+
+  const failed = await sender.sendUpdate({
+    outcome: { from: 'v0.1.12', to: 'v0.1.13', attempts: 2, error: `npm failed in ${home}\\app` },
+    logTail: `2026-10-26 install failed: EPERM ${home}\\app\\node_modules`,
+  });
+  assert.deepEqual(failed, { sent: true });
+  const event = JSON.parse(seen[0].options.body.trim().split('\n')[2]);
+  assert.equal(event.level, 'error');
+  assert.equal(event.logger, 'update');
+  assert.equal(event.message.formatted, 'Update failed: v0.1.12 -> v0.1.13');
+  assert.equal(event.tags.update_to, 'v0.1.13');
+  assert.equal(JSON.stringify(event).includes('Ivan'), false);
+
+  await sender.sendUpdate({ outcome: { from: 'v0.1.12', to: 'v0.1.13', attempts: 1 }, logTail: '' });
+  const ok = JSON.parse(seen[1].options.body.trim().split('\n')[2]);
+  assert.equal(ok.level, 'info');
+  assert.equal(ok.message.formatted, 'Update installed: v0.1.12 -> v0.1.13');
+});
+
+test('ReportSender.sendUpdate does nothing without a report url', async () => {
+  const sender = senderWith('', async () => { throw new Error('should not send'); });
+  assert.deepEqual(await sender.sendUpdate({ outcome: { to: 'v1' }, logTail: '' }), { sent: false, reason: 'not-configured' });
+});

@@ -123,13 +123,20 @@
 
     if (hasFailure) {
       const errorText = escapeHtml((status.lastUpdate && status.lastUpdate.error) || '');
+      const failedVersion = escapeHtml((status.lastUpdate && status.lastUpdate.to) || latest || 'новой версии');
       els.banner.className = 'update-banner update-banner--error';
       els.banner.innerHTML = `
         <div class="update-banner__content">
-          <strong>Обновление до ${latest || 'новой версии'} не установилось.</strong>
+          <strong>Обновление до ${failedVersion} не установилось.</strong>
           <span>${errorText ? `Текущая версия сохранена. ${errorText}` : 'Текущая версия сохранена.'}</span>
         </div>
+        <div class="update-banner__actions">
+          <button id="retryUpdateBtn" type="button" class="update-banner__button">Повторить</button>
+        </div>
       `;
+      const retryBtn = document.getElementById('retryUpdateBtn');
+      retryBtn.disabled = state.installing;
+      retryBtn.addEventListener('click', installUpdate);
       return;
     }
 
@@ -161,8 +168,8 @@
         <div class="update-banner__content">
           <strong>Доступно обновление ${latest}.</strong>
           <span>${status.busy
-            ? `Сейчас идет задача. Перезапустите приложение, когда будет удобно.${releaseUrl}`
-            : `Обновление готово к установке. Нажмите кнопку, чтобы сразу перезапустить приложение.${releaseUrl}`}</span>
+            ? `Сейчас идет задача. Обновление установится автоматически после её завершения.${releaseUrl}`
+            : `Обновление установится автоматически в течение получаса. Можно не ждать и нажать кнопку.${releaseUrl}`}</span>
         </div>
         <div class="update-banner__actions">
           <button id="installUpdateBtn" type="button" class="update-banner__button">Перезапустить и обновить</button>

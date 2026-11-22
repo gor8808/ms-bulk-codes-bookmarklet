@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 
 const MAX_SAMPLE_LENGTH = 1200;
@@ -193,6 +194,52 @@ function buildReport({ failures, totals, context, appVersion, secrets, outcomes 
   };
 }
 
+function buildUpdateReport({ outcome, logTail, appVersion, secrets }) {
+  const redact = createRedactor(secrets);
+  return {
+    schema: 2,
+    kind: 'update',
+    app: {
+      version: appVersion || 'unknown',
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    update: {
+      from: outcome.from || 'unknown',
+      to: outcome.to || 'unknown',
+      ok: !outcome.error,
+      attempts: Number(outcome.attempts) || 1,
+      ts: outcome.ts || '',
+      error: outcome.error ? redact(outcome.error).slice(0, MAX_SAMPLE_LENGTH) : '',
+    },
+    log: redact(logTail || '').slice(-MAX_SKELETON_LENGTH),
+  };
+}
+
+function describeEvent(report) {
+  if (report.kind === 'update') {
+    const { from, to, ok } = report.update;
+    return {
+      level: ok ? 'info' : 'error',
+      logger: 'update',
+      message: `Update ${ok ? 'installed' : 'failed'}: ${from} -> ${to}`,
+      tags: { update_from: from, update_to: to, update_ok: String(ok), app_version: report.app.version },
+      fingerprint: ['update', ok ? 'ok' : 'failed', to],
+    };
+  }
+
+  const top = report.groups[0] || { stage: 'unknown', kind: 'other' };
+  const rpcVersion = String(report.runtime.rpcVersion || 'unknown');
+  return {
+    level: 'error',
+    logger: 'print',
+    message: `Print failed: ${top.stage}/${top.kind} (${report.totals.failed}/${report.totals.positions})`,
+    tags: { stage: top.stage, kind: top.kind, rpc_version: rpcVersion, app_version: report.app.version },
+    fingerprint: [top.stage, top.kind, rpcVersion],
+  };
+}
+
 function parseSentryDsn(value) {
   let url;
   try {
@@ -214,18 +261,17 @@ function parseSentryDsn(value) {
 
 function buildSentryEnvelope(report, now = new Date()) {
   const eventId = crypto.randomUUID().replace(/-/g, '');
-  const top = report.groups[0] || { stage: 'unknown', kind: 'other' };
-  const rpcVersion = String(report.runtime.rpcVersion || 'unknown');
+  const described = describeEvent(report);
   const event = {
     event_id: eventId,
     timestamp: now.toISOString(),
     platform: 'node',
-    level: 'error',
-    logger: 'print',
+    level: described.level,
+    logger: described.logger,
     release: `ms-bulk-codes@${report.app.version}`,
-    message: { formatted: `Print failed: ${top.stage}/${top.kind} (${report.totals.failed}/${report.totals.positions})` },
-    tags: { stage: top.stage, kind: top.kind, rpc_version: rpcVersion, app_version: report.app.version },
-    fingerprint: [top.stage, top.kind, rpcVersion],
+    message: { formatted: described.message },
+    tags: described.tags,
+    fingerprint: described.fingerprint,
     extra: report,
   };
   const body = [
@@ -311,6 +357,14 @@ class ReportConfigStore {
   }
 }
 
+function safeUsername() {
+  try {
+    return os.userInfo().username;
+  } catch (_) {
+    return '';
+  }
+}
+
 class ReportSender {
   constructor({
     configStore,
@@ -319,6 +373,7 @@ class ReportSender {
     maxPerHour = 10,
     now = () => Date.now(),
     log = () => {},
+    secrets = [os.homedir(), safeUsername()],
   }) {
     this.configStore = configStore;
     this.getAppVersion = getAppVersion;
@@ -326,7 +381,46 @@ class ReportSender {
     this.maxPerHour = maxPerHour;
     this.now = now;
     this.log = log;
+    this.secrets = secrets;
     this.sentAt = [];
+  }
+
+  // Update outcomes (installed or failed) so the maintainer sees every install's state.
+  // Never throws, shares the hourly cap with print reports.
+  async sendUpdate({ outcome, logTail }) {
+    let url;
+    try {
+      url = await this.configStore.load();
+    } catch (_) {
+      return { sent: false, reason: 'config-error' };
+    }
+    if (!url) {
+      return { sent: false, reason: 'not-configured' };
+    }
+    if (!this.takeSlot()) {
+      return { sent: false, reason: 'rate-limited' };
+    }
+
+    try {
+      const report = buildUpdateReport({ outcome, logTail, appVersion: this.getAppVersion(), secrets: this.secrets });
+      await sendReport(url, report, { fetchImpl: this.fetchImpl });
+      this.log('update report sent');
+      return { sent: true };
+    } catch (error) {
+      const message = String(error && error.message ? error.message : error).split(url).join('<report-url>');
+      this.log(`update report not sent: ${message}`);
+      return { sent: false, reason: 'send-failed' };
+    }
+  }
+
+  takeSlot() {
+    const current = this.now();
+    this.sentAt = this.sentAt.filter((time) => current - time < 60 * 60 * 1000);
+    if (this.sentAt.length >= this.maxPerHour) {
+      return false;
+    }
+    this.sentAt.push(current);
+    return true;
   }
 
   // Never throws: a reporting problem must not affect the print run that triggered it.
@@ -346,12 +440,9 @@ class ReportSender {
       return { sent: false, reason: 'nothing-to-report' };
     }
 
-    const current = this.now();
-    this.sentAt = this.sentAt.filter((time) => current - time < 60 * 60 * 1000);
-    if (this.sentAt.length >= this.maxPerHour) {
+    if (!this.takeSlot()) {
       return { sent: false, reason: 'rate-limited' };
     }
-    this.sentAt.push(current);
 
     try {
       const report = buildReport({
@@ -378,6 +469,7 @@ module.exports = {
   ReportSender,
   buildReport,
   buildSentryEnvelope,
+  buildUpdateReport,
   classifyFailure,
   createRedactor,
   parseSentryDsn,
